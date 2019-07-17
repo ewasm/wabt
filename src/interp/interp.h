@@ -535,6 +535,8 @@ class Thread {
   Result Run(int num_instructions = 1);
 
   Result CallHost(HostFunc*);
+  Result OpcodeI64BinOp(Opcode opcode_binop, uint64_t* i64_binop_result, uint64_t lhs, uint64_t rhs);
+  Result OpcodeI32BinOp(Opcode opcode_binop, uint32_t* i32_binop_result, uint32_t lhs, uint32_t rhs);
 
  private:
   const uint8_t* GetIstream() const { return env_->istream_->data.data(); }

@@ -163,6 +163,15 @@ class BinaryReaderIR : public BinaryReaderNop {
                     uint32_t alignment_log2,
                     Address offset) override;
   Result OnLocalGetExpr(Index local_index) override;
+
+  Result OnLocalGetLocalGetI64BinOpExpr(Opcode opcode, Index local_index, Index local_index_next) override;
+  Result OnLocalGetI64ConstI64BinOpExpr(Opcode opcode, Index local_index, uint64_t i64const_value) override;
+  Result OnI64ConstI64BinOpExpr(Opcode opcode, uint64_t i64const_value) override;
+
+  Result OnLocalGetLocalGetI32BinOpExpr(Opcode opcode, Index local_index, Index local_index_next) override;
+  Result OnLocalGetI32ConstI32BinOpExpr(Opcode opcode, Index local_index, uint32_t i32const_value) override;
+  Result OnI32ConstI32BinOpExpr(Opcode opcode, uint32_t i32const_value) override;
+
   Result OnLocalSetExpr(Index local_index) override;
   Result OnLocalTeeExpr(Index local_index) override;
   Result OnLoopExpr(Type sig_type) override;
@@ -788,6 +797,40 @@ Result BinaryReaderIR::OnGlobalGetExpr(Index global_index) {
 Result BinaryReaderIR::OnLocalGetExpr(Index local_index) {
   return AppendExpr(MakeUnique<LocalGetExpr>(Var(local_index, GetLocation())));
 }
+
+
+
+// These are used for wasm2wat, dont need to be correct.
+Result BinaryReaderIR::OnLocalGetLocalGetI64BinOpExpr(Opcode opcode, Index local_index, Index local_index_next) {
+  return AppendExpr(MakeUnique<LocalGetExpr>(Var(local_index, GetLocation())));
+  //return AppendExpr(MakeUnique<LocalGetExpr>(Var(local_index_next, GetLocation())));
+}
+
+Result BinaryReaderIR::OnLocalGetI64ConstI64BinOpExpr(Opcode opcode, Index local_index, uint64_t i64const_value) {
+  return AppendExpr(MakeUnique<LocalGetExpr>(Var(local_index, GetLocation())));
+  //return AppendExpr(MakeUnique<LocalGetExpr>(Var(local_index_next, GetLocation())));
+}
+
+Result BinaryReaderIR::OnI64ConstI64BinOpExpr(Opcode opcode, uint64_t i64const_value) {
+  //return AppendExpr(MakeUnique<LocalGetExpr>(Var(local_index, GetLocation())));
+  return AppendExpr(MakeUnique<ConstExpr>(Const::I64(i64const_value, GetLocation())));
+}
+
+Result BinaryReaderIR::OnLocalGetLocalGetI32BinOpExpr(Opcode opcode, Index local_index, Index local_index_next) {
+  return AppendExpr(MakeUnique<LocalGetExpr>(Var(local_index, GetLocation())));
+  //return AppendExpr(MakeUnique<LocalGetExpr>(Var(local_index_next, GetLocation())));
+}
+
+Result BinaryReaderIR::OnLocalGetI32ConstI32BinOpExpr(Opcode opcode, Index local_index, uint32_t i32const_value) {
+  return AppendExpr(MakeUnique<LocalGetExpr>(Var(local_index, GetLocation())));
+  //return AppendExpr(MakeUnique<LocalGetExpr>(Var(local_index_next, GetLocation())));
+}
+
+Result BinaryReaderIR::OnI32ConstI32BinOpExpr(Opcode opcode, uint32_t i32const_value) {
+  //return AppendExpr(MakeUnique<LocalGetExpr>(Var(local_index, GetLocation())));
+  return AppendExpr(MakeUnique<ConstExpr>(Const::I32(i32const_value, GetLocation())));
+}
+
 
 Result BinaryReaderIR::OnI32ConstExpr(uint32_t value) {
   return AppendExpr(MakeUnique<ConstExpr>(Const::I32(value, GetLocation())));
