@@ -265,6 +265,13 @@ WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmFrmSquare, "")
 WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmFrmFromMont, "")
 WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmFrmToMont, "")
 
+/* For the "super-instruction triple combo" speedups */
+WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xd2, LocalGetLocalGetI64BinOp, "ewasm_localgetlocalgeti64BinOp")
+WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xd3, LocalGetI64ConstI64BinOp, "ewasm_localgeti64consti64BinOp")
+WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xd4, I64ConstI64BinOp, "ewasm_i64consti64BinOp")
+WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xd5, LocalGetLocalGetI32BinOp, "ewasm_localgetlocalgeti32BinOp")
+WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xd6, LocalGetI32ConstI32BinOp, "ewasm_localgeti32consti32BinOp")
+WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xd7, I32ConstI32BinOp, "ewasm_i32consti32BinOp")
 
 /* Saturating float-to-int opcodes (--enable-saturating-float-to-int) */
 WABT_OPCODE(I32,  F32,  ___,  ___,  0,  0xfc, 0x00, I32TruncSatF32S, "i32.trunc_sat_f32_s")

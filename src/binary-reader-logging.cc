@@ -587,6 +587,40 @@ Result BinaryReaderLogging::OnInitFunction(uint32_t priority,
     return reader_->name(value0, value1);                                \
   }
 
+#define DEFINE_OPCODE_INDEX_INDEX(name, desc0, desc1, desc2)                           \
+  Result BinaryReaderLogging::name(Opcode opcode, Index value0, Index value1) {         \
+    LOGF(#name "(" desc0 ": %" PRIindex ", " desc1 ": %" PRIindex ")\n", \
+         value0, value1);                                                \
+    return reader_->name(opcode, value0, value1);                                \
+  }
+
+#define DEFINE_OPCODE_INDEX_I64VALUE(name, desc0, desc1, desc2)                           \
+  Result BinaryReaderLogging::name(Opcode opcode, Index value0, uint64_t value1) {         \
+    LOGF(#name "(" desc0 ": %" PRIindex ", " desc1 ": %llu" PRIindex ")\n", \
+         value0, value1);                                                \
+    return reader_->name(opcode, value0, value1);                                \
+  }
+
+#define DEFINE_OPCODE_I64VALUE(name, desc0, desc2)                           \
+  Result BinaryReaderLogging::name(Opcode opcode, uint64_t value1) {         \
+    LOGF(#name "(" desc0 ": %llu" PRIindex ")\n", value1);                   \
+    return reader_->name(opcode, value1);                                \
+  }
+
+#define DEFINE_OPCODE_INDEX_I32VALUE(name, desc0, desc1, desc2)                           \
+  Result BinaryReaderLogging::name(Opcode opcode, Index value0, uint32_t value1) {         \
+    LOGF(#name "(" desc0 ": %" PRIindex ", " desc1 ": %" PRIindex ")\n", \
+         value0, value1);                                                \
+    return reader_->name(opcode, value0, value1);                                \
+  }
+
+#define DEFINE_OPCODE_I32VALUE(name, desc0, desc2)                           \
+  Result BinaryReaderLogging::name(Opcode opcode, uint32_t value1) {         \
+    LOGF(#name "(" desc0 ": %" PRIindex ")\n", value1);                   \
+    return reader_->name(opcode, value1);                                \
+  }
+
+
 #define DEFINE_INDEX_INDEX_BOOL(name, desc0, desc1, desc2)                     \
   Result BinaryReaderLogging::name(Index value0, Index value1, bool value2) {  \
     LOGF(#name "(" desc0 ": %" PRIindex ", " desc1 ": %" PRIindex              \
@@ -680,6 +714,15 @@ DEFINE_INDEX_DESC(OnGlobalGetExpr, "index")
 DEFINE_INDEX_DESC(OnGlobalSetExpr, "index")
 DEFINE_LOAD_STORE_OPCODE(OnLoadExpr);
 DEFINE_INDEX_DESC(OnLocalGetExpr, "index")
+
+DEFINE_OPCODE_INDEX_INDEX(OnLocalGetLocalGetI64BinOpExpr, "opcode", "index", "index_next")
+DEFINE_OPCODE_INDEX_I64VALUE(OnLocalGetI64ConstI64BinOpExpr, "opcode", "index", "i64const_value")
+DEFINE_OPCODE_I64VALUE(OnI64ConstI64BinOpExpr, "opcode", "i64const_value")
+
+DEFINE_OPCODE_INDEX_INDEX(OnLocalGetLocalGetI32BinOpExpr, "opcode", "index", "index_next")
+DEFINE_OPCODE_INDEX_I32VALUE(OnLocalGetI32ConstI32BinOpExpr, "opcode", "index", "i32const_value")
+DEFINE_OPCODE_I32VALUE(OnI32ConstI32BinOpExpr, "opcode", "i32const_value")
+
 DEFINE_INDEX_DESC(OnLocalSetExpr, "index")
 DEFINE_INDEX_DESC(OnLocalTeeExpr, "index")
 DEFINE0(OnMemoryCopyExpr)

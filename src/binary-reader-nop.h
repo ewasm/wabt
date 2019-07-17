@@ -240,6 +240,15 @@ class BinaryReaderNop : public BinaryReaderDelegate {
     return Result::Ok;
   }
   Result OnLocalGetExpr(Index local_index) override { return Result::Ok; }
+
+  Result OnLocalGetLocalGetI64BinOpExpr(Opcode opcode, Index local_index, Index local_index_next) override { return Result::Ok; }
+  Result OnLocalGetI64ConstI64BinOpExpr(Opcode opcode, Index local_index, uint64_t i64const_value) override { return Result::Ok; }
+  Result OnI64ConstI64BinOpExpr(Opcode opcode, uint64_t i64const_value) override { return Result::Ok; }
+
+  Result OnLocalGetLocalGetI32BinOpExpr(Opcode opcode, Index local_index, Index local_index_next) override { return Result::Ok; }
+  Result OnLocalGetI32ConstI32BinOpExpr(Opcode opcode, Index local_index, uint32_t i32const_value) override { return Result::Ok; }
+  Result OnI32ConstI32BinOpExpr(Opcode opcode, uint32_t i32const_value) override { return Result::Ok; }
+
   Result OnLocalSetExpr(Index local_index) override { return Result::Ok; }
   Result OnLocalTeeExpr(Index local_index) override { return Result::Ok; }
   Result OnLoopExpr(Type sig_type) override { return Result::Ok; }

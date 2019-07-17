@@ -16,6 +16,8 @@
 
 #include "src/binary-reader.h"
 
+#include <deque>
+
 #include <cassert>
 #include <cinttypes>
 #include <cstdarg>
@@ -114,6 +116,23 @@ class BinaryReader {
   Result ReadOffset(Offset* offset, const char* desc) WABT_WARN_UNUSED;
   Result ReadCount(Index* index, const char* desc) WABT_WARN_UNUSED;
 
+
+  Result PeekOpcode(Opcode* out_value, const char* desc) WABT_WARN_UNUSED;
+  template <typename T>
+  Result PeekT(T* out_value,
+               const char* type_name,
+               const char* desc) WABT_WARN_UNUSED;
+  Result PeekU8(uint8_t* out_value, const char* desc) WABT_WARN_UNUSED;
+  Result PeekU32(uint32_t* out_value, const char* desc) WABT_WARN_UNUSED;
+  Result PeekF32(uint32_t* out_value, const char* desc) WABT_WARN_UNUSED;
+  Result PeekF64(uint64_t* out_value, const char* desc) WABT_WARN_UNUSED;
+  Result PeekV128(v128* out_value, const char* desc) WABT_WARN_UNUSED;
+  Result PeekIndex(Index* index, const char* desc) WABT_WARN_UNUSED;
+  Result PeekType(Type* out_value, const char* desc) WABT_WARN_UNUSED;
+  Result PeekU32Leb128(uint32_t* out_value, const char* desc) WABT_WARN_UNUSED;
+  Result PeekS32Leb128(uint32_t* out_value, const char* desc) WABT_WARN_UNUSED;
+  Result PeekS64Leb128(uint64_t* out_value, const char* desc) WABT_WARN_UNUSED;
+
   bool IsConcreteType(Type);
   bool IsBlockType(Type);
 
@@ -130,6 +149,8 @@ class BinaryReader {
   Result ReadGlobalHeader(Type* out_type, bool* out_mutable) WABT_WARN_UNUSED;
   Result ReadEventType(Index* out_sig_index) WABT_WARN_UNUSED;
   Result ReadFunctionBody(Offset end_offset) WABT_WARN_UNUSED;
+  Result ProcessOpcodeInFuncBody(Opcode opcode, bool *seen_end_opcode, Offset end_offset) WABT_WARN_UNUSED;
+  Result PeekOpcodeInFuncBody(Opcode opcode, bool *seen_end_opcode, Offset end_offset) WABT_WARN_UNUSED;
   Result ReadNameSection(Offset section_size) WABT_WARN_UNUSED;
   Result ReadRelocSection(Offset section_size) WABT_WARN_UNUSED;
   Result ReadDylinkSection(Offset section_size) WABT_WARN_UNUSED;
@@ -234,6 +255,105 @@ Result BinaryReader::ReportUnexpectedOpcode(Opcode opcode,
   return Result::Error;
 }
 
+
+Result BinaryReader::PeekOpcode(Opcode* out_value, const char* desc) {
+  //printf("PeekOpcode state_.peek_offset before peek: %lu\n", state_.peek_offset);
+  uint8_t value = 0;
+  CHECK_RESULT(PeekU8(&value, desc));
+
+  if (Opcode::IsPrefixByte(value)) {
+    uint32_t code;
+    CHECK_RESULT(PeekU32Leb128(&code, desc));
+    *out_value = Opcode::FromCode(value, code);
+  } else {
+    *out_value = Opcode::FromCode(value);
+  }
+  //printf("PeekOpcode state_.peek_offset after peek: %lu\n", state_.peek_offset);
+  return Result::Ok;
+}
+
+template <typename T>
+Result BinaryReader::PeekT(T* out_value,
+                           const char* type_name,
+                           const char* desc) {
+  if (state_.peek_offset + sizeof(T) > read_end_) {
+    PrintError("unable to read %s: %s", type_name, desc);
+    return Result::Error;
+  }
+  memcpy(out_value, state_.data + state_.peek_offset, sizeof(T));
+  // don't increment offset since we are peeking, not reading
+  //state_.offset += sizeof(T);
+  state_.peek_offset += sizeof(T);
+  return Result::Ok;
+}
+
+Result BinaryReader::PeekU8(uint8_t* out_value, const char* desc) {
+  return PeekT(out_value, "uint8_t", desc);
+}
+
+Result BinaryReader::PeekU32Leb128(uint32_t* out_value, const char* desc) {
+  const uint8_t* p = state_.data + state_.peek_offset;
+  const uint8_t* end = state_.data + read_end_;
+  size_t bytes_read = wabt::ReadU32Leb128(p, end, out_value);
+  ERROR_UNLESS(bytes_read > 0, "unable to read u32 leb128: %s", desc);
+  // don't increment offset since we are peeking, not reading
+  // state_.offset += bytes_read;
+  state_.peek_offset += bytes_read;
+  return Result::Ok;
+}
+
+Result BinaryReader::PeekS32Leb128(uint32_t* out_value, const char* desc) {
+  const uint8_t* p = state_.data + state_.peek_offset;
+  const uint8_t* end = state_.data + read_end_;
+  size_t bytes_read = wabt::ReadS32Leb128(p, end, out_value);
+  ERROR_UNLESS(bytes_read > 0, "unable to read i32 leb128: %s", desc);
+  state_.peek_offset += bytes_read;
+  return Result::Ok;
+}
+
+Result BinaryReader::PeekS64Leb128(uint64_t* out_value, const char* desc) {
+  const uint8_t* p = state_.data + state_.peek_offset;
+  const uint8_t* end = state_.data + read_end_;
+  size_t bytes_read = wabt::ReadS64Leb128(p, end, out_value);
+  ERROR_UNLESS(bytes_read > 0, "unable to read i64 leb128: %s", desc);
+  state_.peek_offset += bytes_read;
+  return Result::Ok;
+}
+
+Result BinaryReader::PeekU32(uint32_t* out_value, const char* desc) {
+  return PeekT(out_value, "uint32_t", desc);
+}
+
+Result BinaryReader::PeekF32(uint32_t* out_value, const char* desc) {
+  return PeekT(out_value, "float", desc);
+}
+
+Result BinaryReader::PeekF64(uint64_t* out_value, const char* desc) {
+  return PeekT(out_value, "double", desc);
+}
+
+Result BinaryReader::PeekV128(v128* out_value, const char* desc) {
+  return PeekT(out_value, "v128", desc);
+}
+
+Result BinaryReader::PeekIndex(Index* index, const char* desc) {
+  uint32_t value;
+  CHECK_RESULT(PeekU32Leb128(&value, desc));
+  *index = value;
+  return Result::Ok;
+}
+
+Result BinaryReader::PeekType(Type* out_value, const char* desc) {
+  uint32_t type = 0;
+  CHECK_RESULT(PeekS32Leb128(&type, desc));
+  *out_value = static_cast<Type>(type);
+  return Result::Ok;
+}
+
+
+
+
+// _state.offset is incremented here. in ReadU8/ReadT
 Result BinaryReader::ReadOpcode(Opcode* out_value, const char* desc) {
   uint8_t value = 0;
   CHECK_RESULT(ReadU8(&value, desc));
@@ -563,928 +683,2217 @@ Result BinaryReader::ReadGlobalHeader(Type* out_type, bool* out_mutable) {
   return Result::Ok;
 }
 
+
+// TODO: keep an OpcodePeekArr that is two opcodes ahead
+//  process the tail if no pattern is matched
+
+// state_.peek_offset
+
+//void pushPeek(Opcode[] peekOpcodes) {
+//  if peekOp
+//}
+
 Result BinaryReader::ReadFunctionBody(Offset end_offset) {
+  //printf("ReadFunctionBody!\n");
+  //Opcode peekOpcodes[3];
+  std::deque<Opcode> peekOpcodes;
+
   bool seen_end_opcode = false;
+
+  state_.peek_offset = state_.offset;
+  bool seen_end_opcode_peek = false;
+
+  // should Peek twice before starting while loop.
+
+  Opcode peek_opcode_one;
+  CHECK_RESULT(PeekOpcode(&peek_opcode_one, "opcode"));
+  peekOpcodes.push_back(peek_opcode_one);
+  // call this to advance state_.peekOffset correctly
+  CHECK_RESULT(PeekOpcodeInFuncBody(peek_opcode_one, &seen_end_opcode_peek, end_offset));
+
+  // peek at second opcode.
+  Opcode peek_opcode_two;
+  CHECK_RESULT(PeekOpcode(&peek_opcode_two, "opcode"));
+  peekOpcodes.push_back(peek_opcode_two);
+  // call this to advance state_.peekOffset correctly
+  CHECK_RESULT(PeekOpcodeInFuncBody(peek_opcode_two, &seen_end_opcode_peek, end_offset));
+
+
   while (state_.offset < end_offset) {
+
+    //printf("while loop state_.offset: %lu    end_offset: %lu\n", state_.offset, end_offset);
+    if (state_.peek_offset < end_offset) {
+
+      Opcode peek_opcode;
+      CHECK_RESULT(PeekOpcode(&peek_opcode, "opcode"));
+      peekOpcodes.push_back(peek_opcode);
+      CHECK_RESULT(PeekOpcodeInFuncBody(peek_opcode, &seen_end_opcode_peek, end_offset));
+
+      if (peekOpcodes.size() < 3) {
+        //printf("LESS THAN THREE OPCODES.\n");
+        continue;
+      }
+
+    }
+
+    if (peekOpcodes.size() == 3) {
+      //printf("peekOpcodes.size() == 3.\n");
+      Opcode opcode_back = peekOpcodes.back();
+      /*
+      if (last.GetCode() >= 0x7c && last.GetCode() <= 0x8a) {
+        printf("got I64BinOp!!\n");
+      }
+      if (last.GetCode() >= 0x6a && last.GetCode() <= 0x78) {
+        printf("got I32BinOp!!\n");
+      }
+      */
+
+      if (opcode_back.GetCode() >= 0x7c && opcode_back.GetCode() <= 0x8a) {
+        // I64BinOp
+
+          // check for LocalGet, LocalGet
+          if (peekOpcodes[0] == Opcode::LocalGet && peekOpcodes[1] == Opcode::LocalGet) {
+            //printf("!!!!!----- got Two LocalGets followed by I64BinOp: %s!!\n", opcode_back.GetName());
+            // LocalGetLocalGetI64BinOp
+
+            //printf("current state_.offset: %lu\n", state_.offset);
+            // advance once
+            //Opcode opcode_localget;
+            //CHECK_RESULT(ReadOpcode(&opcode_localget, "opcode"));
+            state_.offset +=1;
+
+            Index local_index;
+            //printf("reading index1..!!\n");
+            CHECK_RESULT(ReadIndex(&local_index, "local.get local index"));
+            //printf("got index1: %lu\n", local_index);
+
+            // advance twice
+            //CHECK_RESULT(ReadOpcode(&opcode_localget, "opcode"));
+            state_.offset +=1;
+
+            Index local_index_next;
+            //printf("reading index2..!!\n");
+            CHECK_RESULT(ReadIndex(&local_index_next, "local.get local index"));
+            //printf("got index2: %lu\n", local_index_next);
+
+            // advance three times
+            state_.offset +=1;
+            if (state_.offset != state_.peek_offset) {
+              printf("Error! messed up state offset!!\n");
+            }
+
+            CALLBACK(OnLocalGetLocalGetI64BinOpExpr, opcode_back, local_index, local_index_next);
+            CALLBACK(OnOpcodeIndex, local_index);
+            CALLBACK(OnOpcodeIndex, local_index_next);
+
+
+            peekOpcodes.pop_front();
+            peekOpcodes.pop_front();
+            peekOpcodes.pop_front();
+            // go to next opcode in the loop
+            continue;
+          }
+
+          // check LocalGet, I64Const
+          if (peekOpcodes[0] == Opcode::LocalGet && peekOpcodes[1] == Opcode::I64Const) {
+            //printf("got LocalGet,Const,I64Binop!!\n");
+
+            // LocalGetI64ConstI64BinOp
+
+            //Opcode opcode_localget;
+            //CHECK_RESULT(ReadOpcode(&opcode_localget, "opcode"));
+
+            // advance over LocalGet opcode
+            state_.offset +=1;
+
+            Index local_index;
+            //printf("reading index1..!!\n");
+            CHECK_RESULT(ReadIndex(&local_index, "local.get local index"));
+            //printf("got index1: %lu\n", local_index);
+
+            /*
+            uint64_t value;
+            CHECK_RESULT(ReadS64Leb128(&value, "i64.const value"));
+            CALLBACK(OnI64ConstExpr, value);
+            CALLBACK(OnOpcodeUint64, value);
+            */
+
+            // advance over i64const opcode
+            state_.offset +=1;
+
+            uint64_t i64const_value;
+            CHECK_RESULT(ReadS64Leb128(&i64const_value, "i64.const value"));
+
+            //printf("got i64const_value: %lu\n", i64const_value);
+
+            // advance over i64binop
+            state_.offset +=1;
+
+            if (state_.offset != state_.peek_offset) {
+              printf("Error! messed up state offset!!\n");
+            }
+
+            CALLBACK(OnLocalGetI64ConstI64BinOpExpr, opcode_back, local_index, i64const_value);
+            CALLBACK(OnOpcodeIndex, local_index);
+            CALLBACK(OnOpcodeUint64, i64const_value);
+
+
+            peekOpcodes.pop_front();
+            peekOpcodes.pop_front();
+            peekOpcodes.pop_front();
+            // go to next opcode in the loop
+            continue;
+          }
+
+
+          // match only two: I64Const then I64BinOp
+          if (peekOpcodes[1] == Opcode::I64Const) {
+            //printf("got Const,I64Binop!!\n");
+
+            // I64ConstI64BinOp
+
+            // process peekOpcodes[0]
+            Opcode unmatched_opcode;
+            CHECK_RESULT(ReadOpcode(&unmatched_opcode, "opcode"));
+            CALLBACK(OnOpcode, unmatched_opcode);
+            ERROR_UNLESS_OPCODE_ENABLED(unmatched_opcode);
+            CHECK_RESULT(ProcessOpcodeInFuncBody(unmatched_opcode, &seen_end_opcode, end_offset));
+
+
+            // now process the I64const
+
+            /*
+            uint64_t value;
+            CHECK_RESULT(ReadS64Leb128(&value, "i64.const value"));
+            CALLBACK(OnI64ConstExpr, value);
+            CALLBACK(OnOpcodeUint64, value);
+            */
+
+            // advance over i64const opcode
+            state_.offset +=1;
+
+            // read i64const value
+            uint64_t i64const_value;
+            CHECK_RESULT(ReadS64Leb128(&i64const_value, "i64.const value"));
+
+            //printf("got i64const_value: %lu\n", i64const_value);
+
+            // advance over i64binop
+            state_.offset +=1;
+
+            if (state_.offset != state_.peek_offset) {
+              printf("Error! messed up state offset!!\n");
+            }
+
+            CALLBACK(OnI64ConstI64BinOpExpr, opcode_back, i64const_value);
+            CALLBACK(OnOpcodeUint64, i64const_value);
+
+
+            peekOpcodes.pop_front();
+            peekOpcodes.pop_front();
+            peekOpcodes.pop_front();
+            // go to next opcode in the loop
+            continue;
+          }
+
+
+          if ( (peekOpcodes[0] == Opcode::I64Const || peekOpcodes[0] == Opcode::I32Const) && peekOpcodes[1] == Opcode::LocalGet) {
+            //printf("got Const,LocalGet,I64BinOp!!\n");
+          }
+      }
+
+
+      /*
+      if (opcode_back.GetCode() >= 0x6a && opcode_back.GetCode() <= 0x78) {
+        // I32BinOp
+        if (peekOpcodes[1] == Opcode::LocalGet && peekOpcodes[0] == Opcode::LocalGet) {
+            //printf("got Two LocalGets followed by I32BinOp!!\n");
+            
+          }
+
+          // LocalGet,Const,Binop is by far the most numerous
+          if ( (peekOpcodes[1] == Opcode::I64Const || peekOpcodes[1] == Opcode::I32Const) && peekOpcodes[0] == Opcode::LocalGet) {
+            //printf("got LocalGet,Const,I32Binop!!\n");
+
+            // LocalGetI32ConstI32BinOp
+          }
+
+          if ( (peekOpcodes[0] == Opcode::I64Const || peekOpcodes[0] == Opcode::I32Const) && peekOpcodes[1] == Opcode::LocalGet) {
+            //printf("got Const,LocalGet,I32BinOp!!\n");
+          }
+      }
+      */
+
+       if (opcode_back.GetCode() >= 0x6a && opcode_back.GetCode() <= 0x78) {
+        // I32BinOp
+
+          // check for LocalGet, LocalGet
+          if (peekOpcodes[0] == Opcode::LocalGet && peekOpcodes[1] == Opcode::LocalGet) {
+            //printf("!!!!!----- got Two LocalGets followed by I32BinOp: %s!!\n", opcode_back.GetName());
+            // LocalGetLocalGetI64BinOp
+
+            //printf("current state_.offset: %lu\n", state_.offset);
+            // advance once
+            //Opcode opcode_localget;
+            //CHECK_RESULT(ReadOpcode(&opcode_localget, "opcode"));
+            state_.offset +=1;
+
+            Index local_index;
+            //printf("reading index1..!!\n");
+            CHECK_RESULT(ReadIndex(&local_index, "local.get local index"));
+            //printf("got index1: %lu\n", local_index);
+
+            // advance twice
+            //CHECK_RESULT(ReadOpcode(&opcode_localget, "opcode"));
+            state_.offset +=1;
+
+            Index local_index_next;
+            //printf("reading index2..!!\n");
+            CHECK_RESULT(ReadIndex(&local_index_next, "local.get local index"));
+            //printf("got index2: %lu\n", local_index_next);
+
+            // advance three times
+            state_.offset +=1;
+            if (state_.offset != state_.peek_offset) {
+              printf("Error! messed up state offset!!\n");
+            }
+
+            CALLBACK(OnLocalGetLocalGetI32BinOpExpr, opcode_back, local_index, local_index_next);
+            CALLBACK(OnOpcodeIndex, local_index);
+            CALLBACK(OnOpcodeIndex, local_index_next);
+
+
+            peekOpcodes.pop_front();
+            peekOpcodes.pop_front();
+            peekOpcodes.pop_front();
+            // go to next opcode in the loop
+            continue;
+          }
+
+          // check LocalGet, I32Const
+          if (peekOpcodes[0] == Opcode::LocalGet && peekOpcodes[1] == Opcode::I32Const) {
+            //printf("got LocalGet,Const,I32Const!!\n");
+
+            // LocalGetI64ConstI64BinOp
+
+            //Opcode opcode_localget;
+            //CHECK_RESULT(ReadOpcode(&opcode_localget, "opcode"));
+
+            // advance over LocalGet opcode
+            state_.offset +=1;
+
+            Index local_index;
+            //printf("reading index1..!!\n");
+            CHECK_RESULT(ReadIndex(&local_index, "local.get local index"));
+            //printf("got index1: %lu\n", local_index);
+
+            /*
+            uint64_t value;
+            CHECK_RESULT(ReadS64Leb128(&value, "i64.const value"));
+            CALLBACK(OnI64ConstExpr, value);
+            CALLBACK(OnOpcodeUint64, value);
+            */
+
+            // advance over i32const opcode
+            state_.offset +=1;
+
+            uint32_t i32const_value;
+            CHECK_RESULT(ReadS32Leb128(&i32const_value, "i32.const value"));
+
+            //printf("got i32const_value: %lu\n", i32const_value);
+
+            // advance over i32binop
+            state_.offset +=1;
+
+            if (state_.offset != state_.peek_offset) {
+              printf("Error! messed up state offset!!\n");
+            }
+
+            CALLBACK(OnLocalGetI32ConstI32BinOpExpr, opcode_back, local_index, i32const_value);
+            CALLBACK(OnOpcodeIndex, local_index);
+            CALLBACK(OnOpcodeUint32, i32const_value);
+
+
+            peekOpcodes.pop_front();
+            peekOpcodes.pop_front();
+            peekOpcodes.pop_front();
+            // go to next opcode in the loop
+            continue;
+          }
+
+
+          // match only two: I32Const then I32BinOp
+          if (peekOpcodes[1] == Opcode::I32Const) {
+            //printf("got Const,I32Binop!!\n");
+
+            // I32ConstI32BinOp
+
+            // process peekOpcodes[0]
+            Opcode unmatched_opcode;
+            CHECK_RESULT(ReadOpcode(&unmatched_opcode, "opcode"));
+            CALLBACK(OnOpcode, unmatched_opcode);
+            ERROR_UNLESS_OPCODE_ENABLED(unmatched_opcode);
+            CHECK_RESULT(ProcessOpcodeInFuncBody(unmatched_opcode, &seen_end_opcode, end_offset));
+
+
+            // now process the I32const
+
+            /*
+            uint32_t value;
+            CHECK_RESULT(ReadS32Leb128(&value, "i32.const value"));
+            CALLBACK(OnI32ConstExpr, value);
+            CALLBACK(OnOpcodeUint32, value);
+            */
+
+            // advance over i32const opcode
+            state_.offset +=1;
+
+            // read i32const value
+            uint32_t i32const_value;
+            CHECK_RESULT(ReadS32Leb128(&i32const_value, "i32.const value"));
+
+            //printf("got i32const_value: %lu\n", i32const_value);
+
+            // advance over i32binop
+            state_.offset +=1;
+
+            if (state_.offset != state_.peek_offset) {
+              printf("Error! messed up state offset!!\n");
+            }
+
+            CALLBACK(OnI32ConstI32BinOpExpr, opcode_back, i32const_value);
+            CALLBACK(OnOpcodeUint32, i32const_value);
+
+
+            peekOpcodes.pop_front();
+            peekOpcodes.pop_front();
+            peekOpcodes.pop_front();
+            // go to next opcode in the loop
+            continue;
+          }
+
+
+          if (peekOpcodes[0] == Opcode::I32Const && peekOpcodes[1] == Opcode::LocalGet) {
+            //printf("got Const,LocalGet,I64BinOp!!\n");
+          }
+      }
+
+
+
+
+    }
+
+
+    /*
+    // how to handle if we only want to match the last two, and drop the rest to the switch?
+    if (peekOpcodes[2] == Opcode::I64Xor) {
+
+      if (peekOpcodes[1] == Opcode::LocalGet && peekOpcodes[0] == Opcode::LocalGet) {
+        //printf("triple combo!!\n");
+        Opcode opcode_third;
+        // read opcode to advance state_.offset
+        CHECK_RESULT(ReadOpcode(&opcode_third, "opcode"));
+
+        CALLBACK(OnTwoLocalGetI64XorExpr, local_index, local_index_next);
+        CALLBACK(OnOpcodeIndex, local_index);
+        CALLBACK(OnOpcodeIndex, local_index_next);
+      }
+
+      if (peekOpcodes[1] == Opcode::LocalGet) {
+        // Opcode::I64Xor code:
+        //CALLBACK(OnBinaryExpr, opcode);
+        //CALLBACK0(OnOpcodeBare);
+
+        CALLBACK(OnOpcodeIndex, local_index);
+        //printf("got LocalGet then I64Xor!\n");
+        Opcode opcode_next;
+        // call ReadOpcode instead of PeekOpcode to advance state_.offset
+        // TODO: just advance state_.offset without reading again?
+        CHECK_RESULT(ReadOpcode(&opcode_next, "opcode"));
+
+        CALLBACK(OnLocalGetI64XorExpr, local_index);
+        CALLBACK0(OnOpcodeBare);
+      }
+
+    }
+    */
+
+
     Opcode opcode;
     CHECK_RESULT(ReadOpcode(&opcode, "opcode"));
     CALLBACK(OnOpcode, opcode);
     ERROR_UNLESS_OPCODE_ENABLED(opcode);
 
-    switch (opcode) {
-      case Opcode::Unreachable:
-        CALLBACK0(OnUnreachableExpr);
-        CALLBACK0(OnOpcodeBare);
-        break;
+    CHECK_RESULT(ProcessOpcodeInFuncBody(opcode, &seen_end_opcode, end_offset));
 
-      case Opcode::Block: {
-        Type sig_type;
-        CHECK_RESULT(ReadType(&sig_type, "block signature type"));
-        ERROR_UNLESS(IsBlockType(sig_type),
-                     "expected valid block signature type");
-        CALLBACK(OnBlockExpr, sig_type);
-        CALLBACK(OnOpcodeBlockSig, sig_type);
-        break;
-      }
-
-      case Opcode::Loop: {
-        Type sig_type;
-        CHECK_RESULT(ReadType(&sig_type, "loop signature type"));
-        ERROR_UNLESS(IsBlockType(sig_type),
-                     "expected valid block signature type");
-        CALLBACK(OnLoopExpr, sig_type);
-        CALLBACK(OnOpcodeBlockSig, sig_type);
-        break;
-      }
-
-      case Opcode::If: {
-        Type sig_type;
-        CHECK_RESULT(ReadType(&sig_type, "if signature type"));
-        ERROR_UNLESS(IsBlockType(sig_type),
-                     "expected valid block signature type");
-        CALLBACK(OnIfExpr, sig_type);
-        CALLBACK(OnOpcodeBlockSig, sig_type);
-        break;
-      }
-
-      case Opcode::Else:
-        CALLBACK0(OnElseExpr);
-        CALLBACK0(OnOpcodeBare);
-        break;
-
-      case Opcode::Select:
-        CALLBACK0(OnSelectExpr);
-        CALLBACK0(OnOpcodeBare);
-        break;
-
-      case Opcode::Br: {
-        Index depth;
-        CHECK_RESULT(ReadIndex(&depth, "br depth"));
-        CALLBACK(OnBrExpr, depth);
-        CALLBACK(OnOpcodeIndex, depth);
-        break;
-      }
-
-      case Opcode::BrIf: {
-        Index depth;
-        CHECK_RESULT(ReadIndex(&depth, "br_if depth"));
-        CALLBACK(OnBrIfExpr, depth);
-        CALLBACK(OnOpcodeIndex, depth);
-        break;
-      }
-
-      case Opcode::BrTable: {
-        Index num_targets;
-        CHECK_RESULT(ReadIndex(&num_targets, "br_table target count"));
-        target_depths_.resize(num_targets);
-
-        for (Index i = 0; i < num_targets; ++i) {
-          Index target_depth;
-          CHECK_RESULT(ReadIndex(&target_depth, "br_table target depth"));
-          target_depths_[i] = target_depth;
-        }
-
-        Index default_target_depth;
-        CHECK_RESULT(
-            ReadIndex(&default_target_depth, "br_table default target depth"));
-
-        Index* target_depths = num_targets ? target_depths_.data() : nullptr;
-
-        CALLBACK(OnBrTableExpr, num_targets, target_depths,
-                 default_target_depth);
-        break;
-      }
-
-      case Opcode::Return:
-        CALLBACK0(OnReturnExpr);
-        CALLBACK0(OnOpcodeBare);
-        break;
-
-      case Opcode::Nop:
-        CALLBACK0(OnNopExpr);
-        CALLBACK0(OnOpcodeBare);
-        break;
-
-      case Opcode::Drop:
-        CALLBACK0(OnDropExpr);
-        CALLBACK0(OnOpcodeBare);
-        break;
-
-      case Opcode::End:
-        if (state_.offset == end_offset) {
-          seen_end_opcode = true;
-          CALLBACK0(OnEndFunc);
-        } else {
-          CALLBACK0(OnEndExpr);
-        }
-        break;
-
-      case Opcode::I32Const: {
-        uint32_t value;
-        CHECK_RESULT(ReadS32Leb128(&value, "i32.const value"));
-        CALLBACK(OnI32ConstExpr, value);
-        CALLBACK(OnOpcodeUint32, value);
-        break;
-      }
-
-      case Opcode::I64Const: {
-        uint64_t value;
-        CHECK_RESULT(ReadS64Leb128(&value, "i64.const value"));
-        CALLBACK(OnI64ConstExpr, value);
-        CALLBACK(OnOpcodeUint64, value);
-        break;
-      }
-
-      case Opcode::F32Const: {
-        uint32_t value_bits = 0;
-        CHECK_RESULT(ReadF32(&value_bits, "f32.const value"));
-        CALLBACK(OnF32ConstExpr, value_bits);
-        CALLBACK(OnOpcodeF32, value_bits);
-        break;
-      }
-
-      case Opcode::F64Const: {
-        uint64_t value_bits = 0;
-        CHECK_RESULT(ReadF64(&value_bits, "f64.const value"));
-        CALLBACK(OnF64ConstExpr, value_bits);
-        CALLBACK(OnOpcodeF64, value_bits);
-        break;
-      }
-
-      case Opcode::V128Const: {
-        v128 value_bits;
-        ZeroMemory(value_bits);
-        CHECK_RESULT(ReadV128(&value_bits, "v128.const value"));
-        CALLBACK(OnV128ConstExpr, value_bits);
-        CALLBACK(OnOpcodeV128, value_bits);
-        break;
-      }
-
-      case Opcode::GlobalGet: {
-        Index global_index;
-        CHECK_RESULT(ReadIndex(&global_index, "global.get global index"));
-        CALLBACK(OnGlobalGetExpr, global_index);
-        CALLBACK(OnOpcodeIndex, global_index);
-        break;
-      }
-
-      case Opcode::LocalGet: {
-        Index local_index;
-        CHECK_RESULT(ReadIndex(&local_index, "local.get local index"));
-        CALLBACK(OnLocalGetExpr, local_index);
-        CALLBACK(OnOpcodeIndex, local_index);
-        break;
-      }
-
-      case Opcode::GlobalSet: {
-        Index global_index;
-        CHECK_RESULT(ReadIndex(&global_index, "global.set global index"));
-        CALLBACK(OnGlobalSetExpr, global_index);
-        CALLBACK(OnOpcodeIndex, global_index);
-        break;
-      }
-
-      case Opcode::LocalSet: {
-        Index local_index;
-        CHECK_RESULT(ReadIndex(&local_index, "local.set local index"));
-        CALLBACK(OnLocalSetExpr, local_index);
-        CALLBACK(OnOpcodeIndex, local_index);
-        break;
-      }
-
-      case Opcode::Call: {
-        Index func_index;
-        CHECK_RESULT(ReadIndex(&func_index, "call function index"));
-        ERROR_UNLESS(func_index < NumTotalFuncs(),
-                     "invalid call function index: %" PRIindex, func_index);
-        CALLBACK(OnCallExpr, func_index);
-        CALLBACK(OnOpcodeIndex, func_index);
-        break;
-      }
-
-      case Opcode::CallIndirect: {
-        Index sig_index;
-        CHECK_RESULT(ReadIndex(&sig_index, "call_indirect signature index"));
-        ERROR_UNLESS(sig_index < num_signatures_,
-                     "invalid call_indirect signature index");
-        Index table_index = 0;
-        if (options_.features.reference_types_enabled()) {
-          CHECK_RESULT(ReadIndex(&table_index, "call_indirect table index"));
-          ERROR_UNLESS(table_index < NumTotalTables(),
-                       "invalid call_indirect table index");
-        } else {
-          uint8_t reserved;
-          CHECK_RESULT(ReadU8(&reserved, "call_indirect reserved"));
-          ERROR_UNLESS(reserved == 0,
-                           "call_indirect reserved value must be 0");
-        }
-        CALLBACK(OnCallIndirectExpr, sig_index, table_index);
-        CALLBACK(OnOpcodeUint32Uint32, sig_index, table_index);
-        break;
-      }
-
-      case Opcode::ReturnCall: {
-        Index func_index;
-        CHECK_RESULT(ReadIndex(&func_index, "return_call"));
-        ERROR_UNLESS(func_index < NumTotalFuncs(),
-                     "invalid return_call function index: %" PRIindex,
-                     func_index);
-        CALLBACK(OnReturnCallExpr, func_index);
-        CALLBACK(OnOpcodeIndex, func_index);
-        break;
-      }
-
-      case Opcode::ReturnCallIndirect: {
-        Index sig_index;
-        CHECK_RESULT(ReadIndex(&sig_index, "return_call_indirect"));
-        ERROR_UNLESS(sig_index < num_signatures_,
-                     "invalid return_call_indirect signature index");
-        Index table_index = 0;
-        if (options_.features.reference_types_enabled()) {
-          CHECK_RESULT(ReadIndex(&table_index, "return_call_indirect table index"));
-          ERROR_UNLESS(table_index < NumTotalTables(),
-                       "invalid return_call_indirect table index");
-        } else {
-          uint8_t reserved;
-          CHECK_RESULT(ReadU8(&reserved, "return_call_indirect reserved"));
-          ERROR_UNLESS(reserved == 0,
-                           "return_call_indirect reserved value must be 0");
-        }
-        CALLBACK(OnReturnCallIndirectExpr, sig_index, table_index);
-        CALLBACK(OnOpcodeUint32Uint32, sig_index, table_index);
-        break;
-      }
-
-      case Opcode::LocalTee: {
-        Index local_index;
-        CHECK_RESULT(ReadIndex(&local_index, "local.tee local index"));
-        CALLBACK(OnLocalTeeExpr, local_index);
-        CALLBACK(OnOpcodeIndex, local_index);
-        break;
-      }
-
-      case Opcode::I32Load8S:
-      case Opcode::I32Load8U:
-      case Opcode::I32Load16S:
-      case Opcode::I32Load16U:
-      case Opcode::I64Load8S:
-      case Opcode::I64Load8U:
-      case Opcode::I64Load16S:
-      case Opcode::I64Load16U:
-      case Opcode::I64Load32S:
-      case Opcode::I64Load32U:
-      case Opcode::I32Load:
-      case Opcode::I64Load:
-      case Opcode::F32Load:
-      case Opcode::F64Load:
-      case Opcode::V128Load: {
-        uint32_t alignment_log2;
-        CHECK_RESULT(ReadU32Leb128(&alignment_log2, "load alignment"));
-        Address offset;
-        CHECK_RESULT(ReadU32Leb128(&offset, "load offset"));
-
-        CALLBACK(OnLoadExpr, opcode, alignment_log2, offset);
-        CALLBACK(OnOpcodeUint32Uint32, alignment_log2, offset);
-        break;
-      }
-
-      case Opcode::I32Store8:
-      case Opcode::I32Store16:
-      case Opcode::I64Store8:
-      case Opcode::I64Store16:
-      case Opcode::I64Store32:
-      case Opcode::I32Store:
-      case Opcode::I64Store:
-      case Opcode::F32Store:
-      case Opcode::F64Store:
-      case Opcode::V128Store: {
-        uint32_t alignment_log2;
-        CHECK_RESULT(ReadU32Leb128(&alignment_log2, "store alignment"));
-        Address offset;
-        CHECK_RESULT(ReadU32Leb128(&offset, "store offset"));
-
-        CALLBACK(OnStoreExpr, opcode, alignment_log2, offset);
-        CALLBACK(OnOpcodeUint32Uint32, alignment_log2, offset);
-        break;
-      }
-
-      case Opcode::MemorySize: {
-        uint8_t reserved;
-        CHECK_RESULT(ReadU8(&reserved, "memory.size reserved"));
-        ERROR_UNLESS(reserved == 0, "memory.size reserved value must be 0");
-        CALLBACK0(OnMemorySizeExpr);
-        CALLBACK(OnOpcodeUint32, reserved);
-        break;
-      }
-
-      case Opcode::MemoryGrow: {
-        uint8_t reserved;
-        CHECK_RESULT(ReadU8(&reserved, "memory.grow reserved"));
-        ERROR_UNLESS(reserved == 0, "memory.grow reserved value must be 0");
-        CALLBACK0(OnMemoryGrowExpr);
-        CALLBACK(OnOpcodeUint32, reserved);
-        break;
-      }
-
-      case Opcode::I32Add:
-      case Opcode::I32Sub:
-      case Opcode::I32Mul:
-      case Opcode::I32DivS:
-      case Opcode::I32DivU:
-      case Opcode::I32RemS:
-      case Opcode::I32RemU:
-      case Opcode::I32And:
-      case Opcode::I32Or:
-      case Opcode::I32Xor:
-      case Opcode::I32Shl:
-      case Opcode::I32ShrU:
-      case Opcode::I32ShrS:
-      case Opcode::I32Rotr:
-      case Opcode::I32Rotl:
-      case Opcode::I64Add:
-      case Opcode::I64Sub:
-      case Opcode::I64Mul:
-      case Opcode::I64DivS:
-      case Opcode::I64DivU:
-      case Opcode::I64RemS:
-      case Opcode::I64RemU:
-      case Opcode::I64And:
-      case Opcode::I64Or:
-      case Opcode::I64Xor:
-      case Opcode::I64Shl:
-      case Opcode::I64ShrU:
-      case Opcode::I64ShrS:
-      case Opcode::I64Rotr:
-      case Opcode::I64Rotl:
-      case Opcode::F32Add:
-      case Opcode::F32Sub:
-      case Opcode::F32Mul:
-      case Opcode::F32Div:
-      case Opcode::F32Min:
-      case Opcode::F32Max:
-      case Opcode::F32Copysign:
-      case Opcode::F64Add:
-      case Opcode::F64Sub:
-      case Opcode::F64Mul:
-      case Opcode::F64Div:
-      case Opcode::F64Min:
-      case Opcode::F64Max:
-      case Opcode::F64Copysign:
-      case Opcode::I8X16Add:
-      case Opcode::I16X8Add:
-      case Opcode::I32X4Add:
-      case Opcode::I64X2Add:
-      case Opcode::I8X16Sub:
-      case Opcode::I16X8Sub:
-      case Opcode::I32X4Sub:
-      case Opcode::I64X2Sub:
-      case Opcode::I8X16Mul:
-      case Opcode::I16X8Mul:
-      case Opcode::I32X4Mul:
-      case Opcode::I8X16AddSaturateS:
-      case Opcode::I8X16AddSaturateU:
-      case Opcode::I16X8AddSaturateS:
-      case Opcode::I16X8AddSaturateU:
-      case Opcode::I8X16SubSaturateS:
-      case Opcode::I8X16SubSaturateU:
-      case Opcode::I16X8SubSaturateS:
-      case Opcode::I16X8SubSaturateU:
-      case Opcode::I8X16Shl:
-      case Opcode::I16X8Shl:
-      case Opcode::I32X4Shl:
-      case Opcode::I64X2Shl:
-      case Opcode::I8X16ShrS:
-      case Opcode::I8X16ShrU:
-      case Opcode::I16X8ShrS:
-      case Opcode::I16X8ShrU:
-      case Opcode::I32X4ShrS:
-      case Opcode::I32X4ShrU:
-      case Opcode::I64X2ShrS:
-      case Opcode::I64X2ShrU:
-      case Opcode::V128And:
-      case Opcode::V128Or:
-      case Opcode::V128Xor:
-      case Opcode::F32X4Min:
-      case Opcode::F64X2Min:
-      case Opcode::F32X4Max:
-      case Opcode::F64X2Max:
-      case Opcode::F32X4Add:
-      case Opcode::F64X2Add:
-      case Opcode::F32X4Sub:
-      case Opcode::F64X2Sub:
-      case Opcode::F32X4Div:
-      case Opcode::F64X2Div:
-      case Opcode::F32X4Mul:
-      case Opcode::F64X2Mul:
-        CALLBACK(OnBinaryExpr, opcode);
-        CALLBACK0(OnOpcodeBare);
-        break;
-
-      case Opcode::I32Eq:
-      case Opcode::I32Ne:
-      case Opcode::I32LtS:
-      case Opcode::I32LeS:
-      case Opcode::I32LtU:
-      case Opcode::I32LeU:
-      case Opcode::I32GtS:
-      case Opcode::I32GeS:
-      case Opcode::I32GtU:
-      case Opcode::I32GeU:
-      case Opcode::I64Eq:
-      case Opcode::I64Ne:
-      case Opcode::I64LtS:
-      case Opcode::I64LeS:
-      case Opcode::I64LtU:
-      case Opcode::I64LeU:
-      case Opcode::I64GtS:
-      case Opcode::I64GeS:
-      case Opcode::I64GtU:
-      case Opcode::I64GeU:
-      case Opcode::F32Eq:
-      case Opcode::F32Ne:
-      case Opcode::F32Lt:
-      case Opcode::F32Le:
-      case Opcode::F32Gt:
-      case Opcode::F32Ge:
-      case Opcode::F64Eq:
-      case Opcode::F64Ne:
-      case Opcode::F64Lt:
-      case Opcode::F64Le:
-      case Opcode::F64Gt:
-      case Opcode::F64Ge:
-      case Opcode::I8X16Eq:
-      case Opcode::I16X8Eq:
-      case Opcode::I32X4Eq:
-      case Opcode::F32X4Eq:
-      case Opcode::F64X2Eq:
-      case Opcode::I8X16Ne:
-      case Opcode::I16X8Ne:
-      case Opcode::I32X4Ne:
-      case Opcode::F32X4Ne:
-      case Opcode::F64X2Ne:
-      case Opcode::I8X16LtS:
-      case Opcode::I8X16LtU:
-      case Opcode::I16X8LtS:
-      case Opcode::I16X8LtU:
-      case Opcode::I32X4LtS:
-      case Opcode::I32X4LtU:
-      case Opcode::F32X4Lt:
-      case Opcode::F64X2Lt:
-      case Opcode::I8X16LeS:
-      case Opcode::I8X16LeU:
-      case Opcode::I16X8LeS:
-      case Opcode::I16X8LeU:
-      case Opcode::I32X4LeS:
-      case Opcode::I32X4LeU:
-      case Opcode::F32X4Le:
-      case Opcode::F64X2Le:
-      case Opcode::I8X16GtS:
-      case Opcode::I8X16GtU:
-      case Opcode::I16X8GtS:
-      case Opcode::I16X8GtU:
-      case Opcode::I32X4GtS:
-      case Opcode::I32X4GtU:
-      case Opcode::F32X4Gt:
-      case Opcode::F64X2Gt:
-      case Opcode::I8X16GeS:
-      case Opcode::I8X16GeU:
-      case Opcode::I16X8GeS:
-      case Opcode::I16X8GeU:
-      case Opcode::I32X4GeS:
-      case Opcode::I32X4GeU:
-      case Opcode::F32X4Ge:
-      case Opcode::F64X2Ge:
-        CALLBACK(OnCompareExpr, opcode);
-        CALLBACK0(OnOpcodeBare);
-        break;
-
-      case Opcode::I32Clz:
-      case Opcode::I32Ctz:
-      case Opcode::I32Popcnt:
-      case Opcode::I64Clz:
-      case Opcode::I64Ctz:
-      case Opcode::I64Popcnt:
-      case Opcode::F32Abs:
-      case Opcode::F32Neg:
-      case Opcode::F32Ceil:
-      case Opcode::F32Floor:
-      case Opcode::F32Trunc:
-      case Opcode::F32Nearest:
-      case Opcode::F32Sqrt:
-      case Opcode::F64Abs:
-      case Opcode::F64Neg:
-      case Opcode::F64Ceil:
-      case Opcode::F64Floor:
-      case Opcode::F64Trunc:
-      case Opcode::F64Nearest:
-      case Opcode::F64Sqrt:
-      case Opcode::I8X16Splat:
-      case Opcode::I16X8Splat:
-      case Opcode::I32X4Splat:
-      case Opcode::I64X2Splat:
-      case Opcode::F32X4Splat:
-      case Opcode::F64X2Splat:
-      case Opcode::I8X16Neg:
-      case Opcode::I16X8Neg:
-      case Opcode::I32X4Neg:
-      case Opcode::I64X2Neg:
-      case Opcode::V128Not:
-      case Opcode::I8X16AnyTrue:
-      case Opcode::I16X8AnyTrue:
-      case Opcode::I32X4AnyTrue:
-      case Opcode::I64X2AnyTrue:
-      case Opcode::I8X16AllTrue:
-      case Opcode::I16X8AllTrue:
-      case Opcode::I32X4AllTrue:
-      case Opcode::I64X2AllTrue:
-      case Opcode::F32X4Neg:
-      case Opcode::F64X2Neg:
-      case Opcode::F32X4Abs:
-      case Opcode::F64X2Abs:
-      case Opcode::F32X4Sqrt:
-      case Opcode::F64X2Sqrt:
-        CALLBACK(OnUnaryExpr, opcode);
-        CALLBACK0(OnOpcodeBare);
-        break;
-
-      case Opcode::V128BitSelect:
-        CALLBACK(OnTernaryExpr, opcode);
-        CALLBACK0(OnOpcodeBare);
-        break;
-
-      case Opcode::I8X16ExtractLaneS:
-      case Opcode::I8X16ExtractLaneU:
-      case Opcode::I16X8ExtractLaneS:
-      case Opcode::I16X8ExtractLaneU:
-      case Opcode::I32X4ExtractLane:
-      case Opcode::I64X2ExtractLane:
-      case Opcode::F32X4ExtractLane:
-      case Opcode::F64X2ExtractLane:
-      case Opcode::I8X16ReplaceLane:
-      case Opcode::I16X8ReplaceLane:
-      case Opcode::I32X4ReplaceLane:
-      case Opcode::I64X2ReplaceLane:
-      case Opcode::F32X4ReplaceLane:
-      case Opcode::F64X2ReplaceLane: {
-        uint8_t lane_val;
-        CHECK_RESULT(ReadU8(&lane_val, "Lane idx"));
-        CALLBACK(OnSimdLaneOpExpr, opcode, lane_val);
-        CALLBACK(OnOpcodeUint64, lane_val);
-        break;
-      }
-
-      case Opcode::V8X16Shuffle: {
-        v128 value;
-        CHECK_RESULT(ReadV128(&value, "Lane idx [16]"));
-        CALLBACK(OnSimdShuffleOpExpr, opcode, value);
-        CALLBACK(OnOpcodeV128, value);
-        break;
-      }
-
-      case Opcode::I32TruncF32S:
-      case Opcode::I32TruncF64S:
-      case Opcode::I32TruncF32U:
-      case Opcode::I32TruncF64U:
-      case Opcode::I32WrapI64:
-      case Opcode::I64TruncF32S:
-      case Opcode::I64TruncF64S:
-      case Opcode::I64TruncF32U:
-      case Opcode::I64TruncF64U:
-      case Opcode::I64ExtendI32S:
-      case Opcode::I64ExtendI32U:
-      case Opcode::F32ConvertI32S:
-      case Opcode::F32ConvertI32U:
-      case Opcode::F32ConvertI64S:
-      case Opcode::F32ConvertI64U:
-      case Opcode::F32DemoteF64:
-      case Opcode::F32ReinterpretI32:
-      case Opcode::F64ConvertI32S:
-      case Opcode::F64ConvertI32U:
-      case Opcode::F64ConvertI64S:
-      case Opcode::F64ConvertI64U:
-      case Opcode::F64PromoteF32:
-      case Opcode::F64ReinterpretI64:
-      case Opcode::I32ReinterpretF32:
-      case Opcode::I64ReinterpretF64:
-      case Opcode::I32Eqz:
-      case Opcode::I64Eqz:
-      case Opcode::F32X4ConvertI32X4S:
-      case Opcode::F32X4ConvertI32X4U:
-      case Opcode::F64X2ConvertI64X2S:
-      case Opcode::F64X2ConvertI64X2U:
-      case Opcode::I32X4TruncSatF32X4S:
-      case Opcode::I32X4TruncSatF32X4U:
-      case Opcode::I64X2TruncSatF64X2S:
-      case Opcode::I64X2TruncSatF64X2U:
-        CALLBACK(OnConvertExpr, opcode);
-        CALLBACK0(OnOpcodeBare);
-        break;
-
-      case Opcode::Try: {
-        Type sig_type;
-        CHECK_RESULT(ReadType(&sig_type, "try signature type"));
-        ERROR_UNLESS(IsBlockType(sig_type),
-                     "expected valid block signature type");
-        CALLBACK(OnTryExpr, sig_type);
-        CALLBACK(OnOpcodeBlockSig, sig_type);
-        break;
-      }
-
-      case Opcode::Catch: {
-        CALLBACK0(OnCatchExpr);
-        CALLBACK0(OnOpcodeBare);
-        break;
-      }
-
-      case Opcode::Rethrow: {
-        CALLBACK0(OnRethrowExpr);
-        CALLBACK0(OnOpcodeBare);
-        break;
-      }
-
-      case Opcode::Throw: {
-        Index index;
-        CHECK_RESULT(ReadIndex(&index, "event index"));
-        CALLBACK(OnThrowExpr, index);
-        CALLBACK(OnOpcodeIndex, index);
-        break;
-      }
-
-      case Opcode::BrOnExn: {
-        Index depth;
-        Index index;
-        CHECK_RESULT(ReadIndex(&depth, "br_on_exn depth"));
-        CHECK_RESULT(ReadIndex(&index, "event index"));
-        CALLBACK(OnBrOnExnExpr, depth, index);
-        CALLBACK(OnOpcodeIndexIndex, depth, index);
-        break;
-      }
-
-      case Opcode::I32Extend8S:
-      case Opcode::I32Extend16S:
-      case Opcode::I64Extend8S:
-      case Opcode::I64Extend16S:
-      case Opcode::I64Extend32S:
-        CALLBACK(OnUnaryExpr, opcode);
-        CALLBACK0(OnOpcodeBare);
-        break;
-
-      case Opcode::I32TruncSatF32S:
-      case Opcode::I32TruncSatF32U:
-      case Opcode::I32TruncSatF64S:
-      case Opcode::I32TruncSatF64U:
-      case Opcode::I64TruncSatF32S:
-      case Opcode::I64TruncSatF32U:
-      case Opcode::I64TruncSatF64S:
-      case Opcode::I64TruncSatF64U:
-        CALLBACK(OnConvertExpr, opcode);
-        CALLBACK0(OnOpcodeBare);
-        break;
-
-      case Opcode::AtomicNotify: {
-        uint32_t alignment_log2;
-        CHECK_RESULT(ReadU32Leb128(&alignment_log2, "load alignment"));
-        Address offset;
-        CHECK_RESULT(ReadU32Leb128(&offset, "load offset"));
-
-        CALLBACK(OnAtomicNotifyExpr, opcode, alignment_log2, offset);
-        CALLBACK(OnOpcodeUint32Uint32, alignment_log2, offset);
-        break;
-      }
-
-      case Opcode::I32AtomicWait:
-      case Opcode::I64AtomicWait: {
-        uint32_t alignment_log2;
-        CHECK_RESULT(ReadU32Leb128(&alignment_log2, "load alignment"));
-        Address offset;
-        CHECK_RESULT(ReadU32Leb128(&offset, "load offset"));
-
-        CALLBACK(OnAtomicWaitExpr, opcode, alignment_log2, offset);
-        CALLBACK(OnOpcodeUint32Uint32, alignment_log2, offset);
-        break;
-      }
-
-      case Opcode::I32AtomicLoad8U:
-      case Opcode::I32AtomicLoad16U:
-      case Opcode::I64AtomicLoad8U:
-      case Opcode::I64AtomicLoad16U:
-      case Opcode::I64AtomicLoad32U:
-      case Opcode::I32AtomicLoad:
-      case Opcode::I64AtomicLoad: {
-        uint32_t alignment_log2;
-        CHECK_RESULT(ReadU32Leb128(&alignment_log2, "load alignment"));
-        Address offset;
-        CHECK_RESULT(ReadU32Leb128(&offset, "load offset"));
-
-        CALLBACK(OnAtomicLoadExpr, opcode, alignment_log2, offset);
-        CALLBACK(OnOpcodeUint32Uint32, alignment_log2, offset);
-        break;
-      }
-
-      case Opcode::I32AtomicStore8:
-      case Opcode::I32AtomicStore16:
-      case Opcode::I64AtomicStore8:
-      case Opcode::I64AtomicStore16:
-      case Opcode::I64AtomicStore32:
-      case Opcode::I32AtomicStore:
-      case Opcode::I64AtomicStore: {
-        uint32_t alignment_log2;
-        CHECK_RESULT(ReadU32Leb128(&alignment_log2, "store alignment"));
-        Address offset;
-        CHECK_RESULT(ReadU32Leb128(&offset, "store offset"));
-
-        CALLBACK(OnAtomicStoreExpr, opcode, alignment_log2, offset);
-        CALLBACK(OnOpcodeUint32Uint32, alignment_log2, offset);
-        break;
-      }
-
-      case Opcode::I32AtomicRmwAdd:
-      case Opcode::I64AtomicRmwAdd:
-      case Opcode::I32AtomicRmw8AddU:
-      case Opcode::I32AtomicRmw16AddU:
-      case Opcode::I64AtomicRmw8AddU:
-      case Opcode::I64AtomicRmw16AddU:
-      case Opcode::I64AtomicRmw32AddU:
-      case Opcode::I32AtomicRmwSub:
-      case Opcode::I64AtomicRmwSub:
-      case Opcode::I32AtomicRmw8SubU:
-      case Opcode::I32AtomicRmw16SubU:
-      case Opcode::I64AtomicRmw8SubU:
-      case Opcode::I64AtomicRmw16SubU:
-      case Opcode::I64AtomicRmw32SubU:
-      case Opcode::I32AtomicRmwAnd:
-      case Opcode::I64AtomicRmwAnd:
-      case Opcode::I32AtomicRmw8AndU:
-      case Opcode::I32AtomicRmw16AndU:
-      case Opcode::I64AtomicRmw8AndU:
-      case Opcode::I64AtomicRmw16AndU:
-      case Opcode::I64AtomicRmw32AndU:
-      case Opcode::I32AtomicRmwOr:
-      case Opcode::I64AtomicRmwOr:
-      case Opcode::I32AtomicRmw8OrU:
-      case Opcode::I32AtomicRmw16OrU:
-      case Opcode::I64AtomicRmw8OrU:
-      case Opcode::I64AtomicRmw16OrU:
-      case Opcode::I64AtomicRmw32OrU:
-      case Opcode::I32AtomicRmwXor:
-      case Opcode::I64AtomicRmwXor:
-      case Opcode::I32AtomicRmw8XorU:
-      case Opcode::I32AtomicRmw16XorU:
-      case Opcode::I64AtomicRmw8XorU:
-      case Opcode::I64AtomicRmw16XorU:
-      case Opcode::I64AtomicRmw32XorU:
-      case Opcode::I32AtomicRmwXchg:
-      case Opcode::I64AtomicRmwXchg:
-      case Opcode::I32AtomicRmw8XchgU:
-      case Opcode::I32AtomicRmw16XchgU:
-      case Opcode::I64AtomicRmw8XchgU:
-      case Opcode::I64AtomicRmw16XchgU:
-      case Opcode::I64AtomicRmw32XchgU: {
-        uint32_t alignment_log2;
-        CHECK_RESULT(ReadU32Leb128(&alignment_log2, "memory alignment"));
-        Address offset;
-        CHECK_RESULT(ReadU32Leb128(&offset, "memory offset"));
-
-        CALLBACK(OnAtomicRmwExpr, opcode, alignment_log2, offset);
-        CALLBACK(OnOpcodeUint32Uint32, alignment_log2, offset);
-        break;
-      }
-
-      case Opcode::I32AtomicRmwCmpxchg:
-      case Opcode::I64AtomicRmwCmpxchg:
-      case Opcode::I32AtomicRmw8CmpxchgU:
-      case Opcode::I32AtomicRmw16CmpxchgU:
-      case Opcode::I64AtomicRmw8CmpxchgU:
-      case Opcode::I64AtomicRmw16CmpxchgU:
-      case Opcode::I64AtomicRmw32CmpxchgU: {
-        uint32_t alignment_log2;
-        CHECK_RESULT(ReadU32Leb128(&alignment_log2, "memory alignment"));
-        Address offset;
-        CHECK_RESULT(ReadU32Leb128(&offset, "memory offset"));
-
-        CALLBACK(OnAtomicRmwCmpxchgExpr, opcode, alignment_log2, offset);
-        CALLBACK(OnOpcodeUint32Uint32, alignment_log2, offset);
-        break;
-      }
-
-      case Opcode::TableInit: {
-        Index segment;
-        CHECK_RESULT(ReadIndex(&segment, "elem segment index"));
-        uint8_t reserved;
-        CHECK_RESULT(ReadU8(&reserved, "reserved table index"));
-        ERROR_UNLESS(reserved == 0, "reserved value must be 0");
-        CALLBACK(OnTableInitExpr, segment);
-        CALLBACK(OnOpcodeUint32Uint32, segment, reserved);
-        break;
-      }
-
-      case Opcode::MemoryInit: {
-        Index segment;
-        CHECK_RESULT(ReadIndex(&segment, "elem segment index"));
-        uint8_t reserved;
-        CHECK_RESULT(ReadU8(&reserved, "reserved memory index"));
-        ERROR_UNLESS(reserved == 0, "reserved value must be 0");
-        CALLBACK(OnMemoryInitExpr, segment);
-        CALLBACK(OnOpcodeUint32Uint32, segment, reserved);
-        break;
-      }
-
-      case Opcode::DataDrop:
-      case Opcode::ElemDrop: {
-        Index segment;
-        CHECK_RESULT(ReadIndex(&segment, "segment index"));
-        if (opcode == Opcode::DataDrop) {
-          CALLBACK(OnDataDropExpr, segment);
-        } else {
-          CALLBACK(OnElemDropExpr, segment);
-        }
-        CALLBACK(OnOpcodeUint32, segment);
-        break;
-      }
-
-      case Opcode::MemoryFill: {
-        uint8_t reserved;
-        CHECK_RESULT(ReadU8(&reserved, "reserved memory index"));
-        ERROR_UNLESS(reserved == 0, "reserved value must be 0");
-        CALLBACK(OnMemoryFillExpr);
-        CALLBACK(OnOpcodeUint32, reserved);
-        break;
-      }
-      case Opcode::MemoryCopy: {
-        uint8_t reserved;
-        CHECK_RESULT(ReadU8(&reserved, "reserved memory index"));
-        ERROR_UNLESS(reserved == 0, "reserved value must be 0");
-        CHECK_RESULT(ReadU8(&reserved, "reserved memory index"));
-        ERROR_UNLESS(reserved == 0, "reserved value must be 0");
-        CALLBACK(OnMemoryCopyExpr);
-        CALLBACK(OnOpcodeUint32Uint32, reserved, reserved);
-        break;
-      }
-
-      case Opcode::TableCopy: {
-        uint8_t reserved;
-        CHECK_RESULT(ReadU8(&reserved, "reserved table index"));
-        ERROR_UNLESS(reserved == 0, "reserved value must be 0");
-        CHECK_RESULT(ReadU8(&reserved, "reserved table index"));
-        ERROR_UNLESS(reserved == 0, "reserved value must be 0");
-        CALLBACK(OnTableCopyExpr);
-        CALLBACK(OnOpcodeUint32Uint32, reserved, reserved);
-        break;
-      }
-
-      case Opcode::TableGet: {
-        Index table;
-        CHECK_RESULT(ReadIndex(&table, "table index"));
-        CALLBACK(OnTableGetExpr, table);
-        CALLBACK(OnOpcodeUint32, table);
-        break;
-      }
-
-      case Opcode::TableSet: {
-        Index table;
-        CHECK_RESULT(ReadIndex(&table, "table index"));
-        CALLBACK(OnTableSetExpr, table);
-        CALLBACK(OnOpcodeUint32, table);
-        break;
-      }
-
-      case Opcode::TableGrow: {
-        Index table;
-        CHECK_RESULT(ReadIndex(&table, "table index"));
-        CALLBACK(OnTableGrowExpr, table);
-        CALLBACK(OnOpcodeUint32, table);
-        break;
-      }
-
-      case Opcode::TableSize: {
-        Index table;
-        CHECK_RESULT(ReadIndex(&table, "table index"));
-        CALLBACK(OnTableSizeExpr, table);
-        CALLBACK(OnOpcodeUint32, table);
-        break;
-      }
-
-      case Opcode::RefNull: {
-        CALLBACK(OnRefNullExpr);
-        CALLBACK0(OnOpcodeBare);
-        break;
-      }
-
-      case Opcode::RefIsNull: {
-        CALLBACK(OnRefIsNullExpr);
-        CALLBACK0(OnOpcodeBare);
-        break;
-      }
-
-      default:
-        return ReportUnexpectedOpcode(opcode);
+    if (peekOpcodes.size() == 3) {
+      peekOpcodes.pop_front();
     }
+    if (peekOpcodes.size() > 3) {
+      printf("ERROR!! peekOpcodes should never be greater than 3.\n");
+    }
+
+
+    // check if peekOpcodes matches a pattern
+
+
+
+    // state_.offset is used in handling Opcode::End
+
+    // to advance state_.offset??
+    // state_.offset = state_.peek_offset
+
+    /*
+    case Opcode::LocalGet: {
+      Index local_index;
+      CHECK_RESULT(ReadIndex(&local_index, "local.get local index"));
+
+      // Peek at next opcode to check if is another LocalGet
+      Opcode opcode_next_peek;
+      CHECK_RESULT(PeekOpcode(&opcode_next_peek, "opcode"));
+      if (opcode_next_peek == Opcode::I64Xor) {
+        // Local.get I64.Xor
+
+        // Opcode::I64Xor code:
+        //CALLBACK(OnBinaryExpr, opcode);
+        //CALLBACK0(OnOpcodeBare);
+
+        CALLBACK(OnOpcodeIndex, local_index);
+        //printf("got LocalGet then I64Xor!\n");
+        Opcode opcode_next;
+        // call ReadOpcode instead of PeekOpcode to advance state_.offset
+        // TODO: just advance state_.offset without reading again?
+        CHECK_RESULT(ReadOpcode(&opcode_next, "opcode"));
+
+        CALLBACK(OnLocalGetI64XorExpr, local_index);
+        CALLBACK0(OnOpcodeBare);
+      }
+    */
+
+    // after we've queued up three opcodes, check if they match a pattern
+
+    // if they don't match a pattern, process the tail
+    // Opcode opcode = peekOpcodes[0];
+
+    /*
+    Opcode opcode;
+    CHECK_RESULT(ReadOpcode(&opcode, "opcode"));
+    CALLBACK(OnOpcode, opcode);
+    ERROR_UNLESS_OPCODE_ENABLED(opcode);
+    */
+
+    // below here, handle all the regular unmatched opcodes
+
+    /*
+    Opcode opcode = peekOpcodes[0];
+    CALLBACK(OnOpcode, opcode);
+    ERROR_UNLESS_OPCODE_ENABLED(opcode);
+    */
   }
+
   ERROR_UNLESS(state_.offset == end_offset,
                "function body longer than given size");
   ERROR_UNLESS(seen_end_opcode, "function body must end with END opcode");
   return Result::Ok;
 }
+
+
+
+Result BinaryReader::ProcessOpcodeInFuncBody(Opcode opcode, bool* seen_end_opcode, Offset end_offset) {
+  //printf("ProcessOpcodeInFuncBody. state_.offset: %lu   opcode name: %s\n", state_.offset, opcode.GetName());
+  switch (opcode) {
+    case Opcode::Unreachable:
+      CALLBACK0(OnUnreachableExpr);
+      CALLBACK0(OnOpcodeBare);
+      break;
+
+    case Opcode::Block: {
+      Type sig_type;
+      CHECK_RESULT(ReadType(&sig_type, "block signature type"));
+      ERROR_UNLESS(IsBlockType(sig_type),
+                   "expected valid block signature type");
+      CALLBACK(OnBlockExpr, sig_type);
+      CALLBACK(OnOpcodeBlockSig, sig_type);
+      break;
+    }
+
+    case Opcode::Loop: {
+      Type sig_type;
+      CHECK_RESULT(ReadType(&sig_type, "loop signature type"));
+      ERROR_UNLESS(IsBlockType(sig_type),
+                   "expected valid block signature type");
+      CALLBACK(OnLoopExpr, sig_type);
+      CALLBACK(OnOpcodeBlockSig, sig_type);
+      break;
+    }
+
+    case Opcode::If: {
+      Type sig_type;
+      CHECK_RESULT(ReadType(&sig_type, "if signature type"));
+      ERROR_UNLESS(IsBlockType(sig_type),
+                   "expected valid block signature type");
+      CALLBACK(OnIfExpr, sig_type);
+      CALLBACK(OnOpcodeBlockSig, sig_type);
+      break;
+    }
+
+    case Opcode::Else:
+      CALLBACK0(OnElseExpr);
+      CALLBACK0(OnOpcodeBare);
+      break;
+
+    case Opcode::Select:
+      CALLBACK0(OnSelectExpr);
+      CALLBACK0(OnOpcodeBare);
+      break;
+
+    case Opcode::Br: {
+      Index depth;
+      CHECK_RESULT(ReadIndex(&depth, "br depth"));
+      CALLBACK(OnBrExpr, depth);
+      CALLBACK(OnOpcodeIndex, depth);
+      break;
+    }
+
+    case Opcode::BrIf: {
+      Index depth;
+      CHECK_RESULT(ReadIndex(&depth, "br_if depth"));
+      CALLBACK(OnBrIfExpr, depth);
+      CALLBACK(OnOpcodeIndex, depth);
+      break;
+    }
+
+    case Opcode::BrTable: {
+      Index num_targets;
+      CHECK_RESULT(ReadIndex(&num_targets, "br_table target count"));
+      target_depths_.resize(num_targets);
+
+      for (Index i = 0; i < num_targets; ++i) {
+        Index target_depth;
+        CHECK_RESULT(ReadIndex(&target_depth, "br_table target depth"));
+        target_depths_[i] = target_depth;
+      }
+
+      Index default_target_depth;
+      CHECK_RESULT(
+          ReadIndex(&default_target_depth, "br_table default target depth"));
+
+      Index* target_depths = num_targets ? target_depths_.data() : nullptr;
+
+      CALLBACK(OnBrTableExpr, num_targets, target_depths,
+               default_target_depth);
+      break;
+    }
+
+    case Opcode::Return:
+      CALLBACK0(OnReturnExpr);
+      CALLBACK0(OnOpcodeBare);
+      break;
+
+    case Opcode::Nop:
+      CALLBACK0(OnNopExpr);
+      CALLBACK0(OnOpcodeBare);
+      break;
+
+    case Opcode::Drop:
+      CALLBACK0(OnDropExpr);
+      CALLBACK0(OnOpcodeBare);
+      break;
+
+    case Opcode::End:
+      if (state_.offset == end_offset) {
+        *seen_end_opcode = true;
+        CALLBACK0(OnEndFunc);
+      } else {
+        CALLBACK0(OnEndExpr);
+      }
+      break;
+
+    case Opcode::I32Const: {
+      uint32_t value;
+      CHECK_RESULT(ReadS32Leb128(&value, "i32.const value"));
+      CALLBACK(OnI32ConstExpr, value);
+      CALLBACK(OnOpcodeUint32, value);
+      break;
+    }
+
+    case Opcode::I64Const: {
+      uint64_t value;
+      CHECK_RESULT(ReadS64Leb128(&value, "i64.const value"));
+      CALLBACK(OnI64ConstExpr, value);
+      CALLBACK(OnOpcodeUint64, value);
+      break;
+    }
+
+    case Opcode::F32Const: {
+      uint32_t value_bits = 0;
+      CHECK_RESULT(ReadF32(&value_bits, "f32.const value"));
+      CALLBACK(OnF32ConstExpr, value_bits);
+      CALLBACK(OnOpcodeF32, value_bits);
+      break;
+    }
+
+    case Opcode::F64Const: {
+      uint64_t value_bits = 0;
+      CHECK_RESULT(ReadF64(&value_bits, "f64.const value"));
+      CALLBACK(OnF64ConstExpr, value_bits);
+      CALLBACK(OnOpcodeF64, value_bits);
+      break;
+    }
+
+    case Opcode::V128Const: {
+      v128 value_bits;
+      ZeroMemory(value_bits);
+      CHECK_RESULT(ReadV128(&value_bits, "v128.const value"));
+      CALLBACK(OnV128ConstExpr, value_bits);
+      CALLBACK(OnOpcodeV128, value_bits);
+      break;
+    }
+
+    case Opcode::GlobalGet: {
+      Index global_index;
+      CHECK_RESULT(ReadIndex(&global_index, "global.get global index"));
+      CALLBACK(OnGlobalGetExpr, global_index);
+      CALLBACK(OnOpcodeIndex, global_index);
+      break;
+    }
+
+    // here's where LocalGet is handled.
+    case Opcode::LocalGet: {
+      Index local_index;
+      CHECK_RESULT(ReadIndex(&local_index, "local.get local index"));
+      CALLBACK(OnLocalGetExpr, local_index);
+      CALLBACK(OnOpcodeIndex, local_index);
+      break;
+    }
+
+    case Opcode::GlobalSet: {
+      Index global_index;
+      CHECK_RESULT(ReadIndex(&global_index, "global.set global index"));
+      CALLBACK(OnGlobalSetExpr, global_index);
+      CALLBACK(OnOpcodeIndex, global_index);
+      break;
+    }
+
+    case Opcode::LocalSet: {
+      Index local_index;
+      CHECK_RESULT(ReadIndex(&local_index, "local.set local index"));
+      CALLBACK(OnLocalSetExpr, local_index);
+      CALLBACK(OnOpcodeIndex, local_index);
+      break;
+    }
+
+    case Opcode::Call: {
+      Index func_index;
+      CHECK_RESULT(ReadIndex(&func_index, "call function index"));
+      ERROR_UNLESS(func_index < NumTotalFuncs(),
+                   "invalid call function index: %" PRIindex, func_index);
+      CALLBACK(OnCallExpr, func_index);
+      CALLBACK(OnOpcodeIndex, func_index);
+      break;
+    }
+
+    case Opcode::CallIndirect: {
+      Index sig_index;
+      CHECK_RESULT(ReadIndex(&sig_index, "call_indirect signature index"));
+      ERROR_UNLESS(sig_index < num_signatures_,
+                   "invalid call_indirect signature index");
+      Index table_index = 0;
+      if (options_.features.reference_types_enabled()) {
+        CHECK_RESULT(ReadIndex(&table_index, "call_indirect table index"));
+        ERROR_UNLESS(table_index < NumTotalTables(),
+                     "invalid call_indirect table index");
+      } else {
+        uint8_t reserved;
+        CHECK_RESULT(ReadU8(&reserved, "call_indirect reserved"));
+        ERROR_UNLESS(reserved == 0,
+                         "call_indirect reserved value must be 0");
+      }
+      CALLBACK(OnCallIndirectExpr, sig_index, table_index);
+      CALLBACK(OnOpcodeUint32Uint32, sig_index, table_index);
+      break;
+    }
+
+    case Opcode::ReturnCall: {
+      Index func_index;
+      CHECK_RESULT(ReadIndex(&func_index, "return_call"));
+      ERROR_UNLESS(func_index < NumTotalFuncs(),
+                   "invalid return_call function index: %" PRIindex,
+                   func_index);
+      CALLBACK(OnReturnCallExpr, func_index);
+      CALLBACK(OnOpcodeIndex, func_index);
+      break;
+    }
+
+    case Opcode::ReturnCallIndirect: {
+      Index sig_index;
+      CHECK_RESULT(ReadIndex(&sig_index, "return_call_indirect"));
+      ERROR_UNLESS(sig_index < num_signatures_,
+                   "invalid return_call_indirect signature index");
+      Index table_index = 0;
+      if (options_.features.reference_types_enabled()) {
+        CHECK_RESULT(ReadIndex(&table_index, "return_call_indirect table index"));
+        ERROR_UNLESS(table_index < NumTotalTables(),
+                     "invalid return_call_indirect table index");
+      } else {
+        uint8_t reserved;
+        CHECK_RESULT(ReadU8(&reserved, "return_call_indirect reserved"));
+        ERROR_UNLESS(reserved == 0,
+                         "return_call_indirect reserved value must be 0");
+      }
+      CALLBACK(OnReturnCallIndirectExpr, sig_index, table_index);
+      CALLBACK(OnOpcodeUint32Uint32, sig_index, table_index);
+      break;
+    }
+
+    case Opcode::LocalTee: {
+      Index local_index;
+      CHECK_RESULT(ReadIndex(&local_index, "local.tee local index"));
+      CALLBACK(OnLocalTeeExpr, local_index);
+      CALLBACK(OnOpcodeIndex, local_index);
+      break;
+    }
+
+    case Opcode::I32Load8S:
+    case Opcode::I32Load8U:
+    case Opcode::I32Load16S:
+    case Opcode::I32Load16U:
+    case Opcode::I64Load8S:
+    case Opcode::I64Load8U:
+    case Opcode::I64Load16S:
+    case Opcode::I64Load16U:
+    case Opcode::I64Load32S:
+    case Opcode::I64Load32U:
+    case Opcode::I32Load:
+    case Opcode::I64Load:
+    case Opcode::F32Load:
+    case Opcode::F64Load:
+    case Opcode::V128Load: {
+      uint32_t alignment_log2;
+      CHECK_RESULT(ReadU32Leb128(&alignment_log2, "load alignment"));
+      Address offset;
+      CHECK_RESULT(ReadU32Leb128(&offset, "load offset"));
+
+      CALLBACK(OnLoadExpr, opcode, alignment_log2, offset);
+      CALLBACK(OnOpcodeUint32Uint32, alignment_log2, offset);
+      break;
+    }
+
+    case Opcode::I32Store8:
+    case Opcode::I32Store16:
+    case Opcode::I64Store8:
+    case Opcode::I64Store16:
+    case Opcode::I64Store32:
+    case Opcode::I32Store:
+    case Opcode::I64Store:
+    case Opcode::F32Store:
+    case Opcode::F64Store:
+    case Opcode::V128Store: {
+      uint32_t alignment_log2;
+      CHECK_RESULT(ReadU32Leb128(&alignment_log2, "store alignment"));
+      Address offset;
+      CHECK_RESULT(ReadU32Leb128(&offset, "store offset"));
+
+      CALLBACK(OnStoreExpr, opcode, alignment_log2, offset);
+      CALLBACK(OnOpcodeUint32Uint32, alignment_log2, offset);
+      break;
+    }
+
+    case Opcode::MemorySize: {
+      uint8_t reserved;
+      CHECK_RESULT(ReadU8(&reserved, "memory.size reserved"));
+      ERROR_UNLESS(reserved == 0, "memory.size reserved value must be 0");
+      CALLBACK0(OnMemorySizeExpr);
+      CALLBACK(OnOpcodeUint32, reserved);
+      break;
+    }
+
+    case Opcode::MemoryGrow: {
+      uint8_t reserved;
+      CHECK_RESULT(ReadU8(&reserved, "memory.grow reserved"));
+      ERROR_UNLESS(reserved == 0, "memory.grow reserved value must be 0");
+      CALLBACK0(OnMemoryGrowExpr);
+      CALLBACK(OnOpcodeUint32, reserved);
+      break;
+    }
+
+    case Opcode::I32Add:
+    case Opcode::I32Sub:
+    case Opcode::I32Mul:
+    case Opcode::I32DivS:
+    case Opcode::I32DivU:
+    case Opcode::I32RemS:
+    case Opcode::I32RemU:
+    case Opcode::I32And:
+    case Opcode::I32Or:
+    case Opcode::I32Xor:
+    case Opcode::I32Shl:
+    case Opcode::I32ShrU:
+    case Opcode::I32ShrS:
+    case Opcode::I32Rotr:
+    case Opcode::I32Rotl:
+    case Opcode::I64Add:
+    case Opcode::I64Sub:
+    case Opcode::I64Mul:
+    case Opcode::I64DivS:
+    case Opcode::I64DivU:
+    case Opcode::I64RemS:
+    case Opcode::I64RemU:
+    case Opcode::I64And:
+    case Opcode::I64Or:
+    case Opcode::I64Xor:
+    case Opcode::I64Shl:
+    case Opcode::I64ShrU:
+    case Opcode::I64ShrS:
+    case Opcode::I64Rotr:
+    case Opcode::I64Rotl:
+    case Opcode::F32Add:
+    case Opcode::F32Sub:
+    case Opcode::F32Mul:
+    case Opcode::F32Div:
+    case Opcode::F32Min:
+    case Opcode::F32Max:
+    case Opcode::F32Copysign:
+    case Opcode::F64Add:
+    case Opcode::F64Sub:
+    case Opcode::F64Mul:
+    case Opcode::F64Div:
+    case Opcode::F64Min:
+    case Opcode::F64Max:
+    case Opcode::F64Copysign:
+    case Opcode::I8X16Add:
+    case Opcode::I16X8Add:
+    case Opcode::I32X4Add:
+    case Opcode::I64X2Add:
+    case Opcode::I8X16Sub:
+    case Opcode::I16X8Sub:
+    case Opcode::I32X4Sub:
+    case Opcode::I64X2Sub:
+    case Opcode::I8X16Mul:
+    case Opcode::I16X8Mul:
+    case Opcode::I32X4Mul:
+    case Opcode::I8X16AddSaturateS:
+    case Opcode::I8X16AddSaturateU:
+    case Opcode::I16X8AddSaturateS:
+    case Opcode::I16X8AddSaturateU:
+    case Opcode::I8X16SubSaturateS:
+    case Opcode::I8X16SubSaturateU:
+    case Opcode::I16X8SubSaturateS:
+    case Opcode::I16X8SubSaturateU:
+    case Opcode::I8X16Shl:
+    case Opcode::I16X8Shl:
+    case Opcode::I32X4Shl:
+    case Opcode::I64X2Shl:
+    case Opcode::I8X16ShrS:
+    case Opcode::I8X16ShrU:
+    case Opcode::I16X8ShrS:
+    case Opcode::I16X8ShrU:
+    case Opcode::I32X4ShrS:
+    case Opcode::I32X4ShrU:
+    case Opcode::I64X2ShrS:
+    case Opcode::I64X2ShrU:
+    case Opcode::V128And:
+    case Opcode::V128Or:
+    case Opcode::V128Xor:
+    case Opcode::F32X4Min:
+    case Opcode::F64X2Min:
+    case Opcode::F32X4Max:
+    case Opcode::F64X2Max:
+    case Opcode::F32X4Add:
+    case Opcode::F64X2Add:
+    case Opcode::F32X4Sub:
+    case Opcode::F64X2Sub:
+    case Opcode::F32X4Div:
+    case Opcode::F64X2Div:
+    case Opcode::F32X4Mul:
+    case Opcode::F64X2Mul:
+      CALLBACK(OnBinaryExpr, opcode);
+      CALLBACK0(OnOpcodeBare);
+      break;
+
+    case Opcode::I32Eq:
+    case Opcode::I32Ne:
+    case Opcode::I32LtS:
+    case Opcode::I32LeS:
+    case Opcode::I32LtU:
+    case Opcode::I32LeU:
+    case Opcode::I32GtS:
+    case Opcode::I32GeS:
+    case Opcode::I32GtU:
+    case Opcode::I32GeU:
+    case Opcode::I64Eq:
+    case Opcode::I64Ne:
+    case Opcode::I64LtS:
+    case Opcode::I64LeS:
+    case Opcode::I64LtU:
+    case Opcode::I64LeU:
+    case Opcode::I64GtS:
+    case Opcode::I64GeS:
+    case Opcode::I64GtU:
+    case Opcode::I64GeU:
+    case Opcode::F32Eq:
+    case Opcode::F32Ne:
+    case Opcode::F32Lt:
+    case Opcode::F32Le:
+    case Opcode::F32Gt:
+    case Opcode::F32Ge:
+    case Opcode::F64Eq:
+    case Opcode::F64Ne:
+    case Opcode::F64Lt:
+    case Opcode::F64Le:
+    case Opcode::F64Gt:
+    case Opcode::F64Ge:
+    case Opcode::I8X16Eq:
+    case Opcode::I16X8Eq:
+    case Opcode::I32X4Eq:
+    case Opcode::F32X4Eq:
+    case Opcode::F64X2Eq:
+    case Opcode::I8X16Ne:
+    case Opcode::I16X8Ne:
+    case Opcode::I32X4Ne:
+    case Opcode::F32X4Ne:
+    case Opcode::F64X2Ne:
+    case Opcode::I8X16LtS:
+    case Opcode::I8X16LtU:
+    case Opcode::I16X8LtS:
+    case Opcode::I16X8LtU:
+    case Opcode::I32X4LtS:
+    case Opcode::I32X4LtU:
+    case Opcode::F32X4Lt:
+    case Opcode::F64X2Lt:
+    case Opcode::I8X16LeS:
+    case Opcode::I8X16LeU:
+    case Opcode::I16X8LeS:
+    case Opcode::I16X8LeU:
+    case Opcode::I32X4LeS:
+    case Opcode::I32X4LeU:
+    case Opcode::F32X4Le:
+    case Opcode::F64X2Le:
+    case Opcode::I8X16GtS:
+    case Opcode::I8X16GtU:
+    case Opcode::I16X8GtS:
+    case Opcode::I16X8GtU:
+    case Opcode::I32X4GtS:
+    case Opcode::I32X4GtU:
+    case Opcode::F32X4Gt:
+    case Opcode::F64X2Gt:
+    case Opcode::I8X16GeS:
+    case Opcode::I8X16GeU:
+    case Opcode::I16X8GeS:
+    case Opcode::I16X8GeU:
+    case Opcode::I32X4GeS:
+    case Opcode::I32X4GeU:
+    case Opcode::F32X4Ge:
+    case Opcode::F64X2Ge:
+      CALLBACK(OnCompareExpr, opcode);
+      CALLBACK0(OnOpcodeBare);
+      break;
+
+    case Opcode::I32Clz:
+    case Opcode::I32Ctz:
+    case Opcode::I32Popcnt:
+    case Opcode::I64Clz:
+    case Opcode::I64Ctz:
+    case Opcode::I64Popcnt:
+    case Opcode::F32Abs:
+    case Opcode::F32Neg:
+    case Opcode::F32Ceil:
+    case Opcode::F32Floor:
+    case Opcode::F32Trunc:
+    case Opcode::F32Nearest:
+    case Opcode::F32Sqrt:
+    case Opcode::F64Abs:
+    case Opcode::F64Neg:
+    case Opcode::F64Ceil:
+    case Opcode::F64Floor:
+    case Opcode::F64Trunc:
+    case Opcode::F64Nearest:
+    case Opcode::F64Sqrt:
+    case Opcode::I8X16Splat:
+    case Opcode::I16X8Splat:
+    case Opcode::I32X4Splat:
+    case Opcode::I64X2Splat:
+    case Opcode::F32X4Splat:
+    case Opcode::F64X2Splat:
+    case Opcode::I8X16Neg:
+    case Opcode::I16X8Neg:
+    case Opcode::I32X4Neg:
+    case Opcode::I64X2Neg:
+    case Opcode::V128Not:
+    case Opcode::I8X16AnyTrue:
+    case Opcode::I16X8AnyTrue:
+    case Opcode::I32X4AnyTrue:
+    case Opcode::I64X2AnyTrue:
+    case Opcode::I8X16AllTrue:
+    case Opcode::I16X8AllTrue:
+    case Opcode::I32X4AllTrue:
+    case Opcode::I64X2AllTrue:
+    case Opcode::F32X4Neg:
+    case Opcode::F64X2Neg:
+    case Opcode::F32X4Abs:
+    case Opcode::F64X2Abs:
+    case Opcode::F32X4Sqrt:
+    case Opcode::F64X2Sqrt:
+      CALLBACK(OnUnaryExpr, opcode);
+      CALLBACK0(OnOpcodeBare);
+      break;
+
+    case Opcode::V128BitSelect:
+      CALLBACK(OnTernaryExpr, opcode);
+      CALLBACK0(OnOpcodeBare);
+      break;
+
+    case Opcode::I8X16ExtractLaneS:
+    case Opcode::I8X16ExtractLaneU:
+    case Opcode::I16X8ExtractLaneS:
+    case Opcode::I16X8ExtractLaneU:
+    case Opcode::I32X4ExtractLane:
+    case Opcode::I64X2ExtractLane:
+    case Opcode::F32X4ExtractLane:
+    case Opcode::F64X2ExtractLane:
+    case Opcode::I8X16ReplaceLane:
+    case Opcode::I16X8ReplaceLane:
+    case Opcode::I32X4ReplaceLane:
+    case Opcode::I64X2ReplaceLane:
+    case Opcode::F32X4ReplaceLane:
+    case Opcode::F64X2ReplaceLane: {
+      uint8_t lane_val;
+      CHECK_RESULT(ReadU8(&lane_val, "Lane idx"));
+      CALLBACK(OnSimdLaneOpExpr, opcode, lane_val);
+      CALLBACK(OnOpcodeUint64, lane_val);
+      break;
+    }
+
+    case Opcode::V8X16Shuffle: {
+      v128 value;
+      CHECK_RESULT(ReadV128(&value, "Lane idx [16]"));
+      CALLBACK(OnSimdShuffleOpExpr, opcode, value);
+      CALLBACK(OnOpcodeV128, value);
+      break;
+    }
+
+    case Opcode::I32TruncF32S:
+    case Opcode::I32TruncF64S:
+    case Opcode::I32TruncF32U:
+    case Opcode::I32TruncF64U:
+    case Opcode::I32WrapI64:
+    case Opcode::I64TruncF32S:
+    case Opcode::I64TruncF64S:
+    case Opcode::I64TruncF32U:
+    case Opcode::I64TruncF64U:
+    case Opcode::I64ExtendI32S:
+    case Opcode::I64ExtendI32U:
+    case Opcode::F32ConvertI32S:
+    case Opcode::F32ConvertI32U:
+    case Opcode::F32ConvertI64S:
+    case Opcode::F32ConvertI64U:
+    case Opcode::F32DemoteF64:
+    case Opcode::F32ReinterpretI32:
+    case Opcode::F64ConvertI32S:
+    case Opcode::F64ConvertI32U:
+    case Opcode::F64ConvertI64S:
+    case Opcode::F64ConvertI64U:
+    case Opcode::F64PromoteF32:
+    case Opcode::F64ReinterpretI64:
+    case Opcode::I32ReinterpretF32:
+    case Opcode::I64ReinterpretF64:
+    case Opcode::I32Eqz:
+    case Opcode::I64Eqz:
+    case Opcode::F32X4ConvertI32X4S:
+    case Opcode::F32X4ConvertI32X4U:
+    case Opcode::F64X2ConvertI64X2S:
+    case Opcode::F64X2ConvertI64X2U:
+    case Opcode::I32X4TruncSatF32X4S:
+    case Opcode::I32X4TruncSatF32X4U:
+    case Opcode::I64X2TruncSatF64X2S:
+    case Opcode::I64X2TruncSatF64X2U:
+      CALLBACK(OnConvertExpr, opcode);
+      CALLBACK0(OnOpcodeBare);
+      break;
+
+    case Opcode::Try: {
+      Type sig_type;
+      CHECK_RESULT(ReadType(&sig_type, "try signature type"));
+      ERROR_UNLESS(IsBlockType(sig_type),
+                   "expected valid block signature type");
+      CALLBACK(OnTryExpr, sig_type);
+      CALLBACK(OnOpcodeBlockSig, sig_type);
+      break;
+    }
+
+    case Opcode::Catch: {
+      CALLBACK0(OnCatchExpr);
+      CALLBACK0(OnOpcodeBare);
+      break;
+    }
+
+    case Opcode::Rethrow: {
+      CALLBACK0(OnRethrowExpr);
+      CALLBACK0(OnOpcodeBare);
+      break;
+    }
+
+    case Opcode::Throw: {
+      Index index;
+      CHECK_RESULT(ReadIndex(&index, "event index"));
+      CALLBACK(OnThrowExpr, index);
+      CALLBACK(OnOpcodeIndex, index);
+      break;
+    }
+
+    case Opcode::BrOnExn: {
+      Index depth;
+      Index index;
+      CHECK_RESULT(ReadIndex(&depth, "br_on_exn depth"));
+      CHECK_RESULT(ReadIndex(&index, "event index"));
+      CALLBACK(OnBrOnExnExpr, depth, index);
+      CALLBACK(OnOpcodeIndexIndex, depth, index);
+      break;
+    }
+
+    case Opcode::I32Extend8S:
+    case Opcode::I32Extend16S:
+    case Opcode::I64Extend8S:
+    case Opcode::I64Extend16S:
+    case Opcode::I64Extend32S:
+      CALLBACK(OnUnaryExpr, opcode);
+      CALLBACK0(OnOpcodeBare);
+      break;
+
+    case Opcode::I32TruncSatF32S:
+    case Opcode::I32TruncSatF32U:
+    case Opcode::I32TruncSatF64S:
+    case Opcode::I32TruncSatF64U:
+    case Opcode::I64TruncSatF32S:
+    case Opcode::I64TruncSatF32U:
+    case Opcode::I64TruncSatF64S:
+    case Opcode::I64TruncSatF64U:
+      CALLBACK(OnConvertExpr, opcode);
+      CALLBACK0(OnOpcodeBare);
+      break;
+
+    case Opcode::AtomicNotify: {
+      uint32_t alignment_log2;
+      CHECK_RESULT(ReadU32Leb128(&alignment_log2, "load alignment"));
+      Address offset;
+      CHECK_RESULT(ReadU32Leb128(&offset, "load offset"));
+
+      CALLBACK(OnAtomicNotifyExpr, opcode, alignment_log2, offset);
+      CALLBACK(OnOpcodeUint32Uint32, alignment_log2, offset);
+      break;
+    }
+
+    case Opcode::I32AtomicWait:
+    case Opcode::I64AtomicWait: {
+      uint32_t alignment_log2;
+      CHECK_RESULT(ReadU32Leb128(&alignment_log2, "load alignment"));
+      Address offset;
+      CHECK_RESULT(ReadU32Leb128(&offset, "load offset"));
+
+      CALLBACK(OnAtomicWaitExpr, opcode, alignment_log2, offset);
+      CALLBACK(OnOpcodeUint32Uint32, alignment_log2, offset);
+      break;
+    }
+
+    case Opcode::I32AtomicLoad8U:
+    case Opcode::I32AtomicLoad16U:
+    case Opcode::I64AtomicLoad8U:
+    case Opcode::I64AtomicLoad16U:
+    case Opcode::I64AtomicLoad32U:
+    case Opcode::I32AtomicLoad:
+    case Opcode::I64AtomicLoad: {
+      uint32_t alignment_log2;
+      CHECK_RESULT(ReadU32Leb128(&alignment_log2, "load alignment"));
+      Address offset;
+      CHECK_RESULT(ReadU32Leb128(&offset, "load offset"));
+
+      CALLBACK(OnAtomicLoadExpr, opcode, alignment_log2, offset);
+      CALLBACK(OnOpcodeUint32Uint32, alignment_log2, offset);
+      break;
+    }
+
+    case Opcode::I32AtomicStore8:
+    case Opcode::I32AtomicStore16:
+    case Opcode::I64AtomicStore8:
+    case Opcode::I64AtomicStore16:
+    case Opcode::I64AtomicStore32:
+    case Opcode::I32AtomicStore:
+    case Opcode::I64AtomicStore: {
+      uint32_t alignment_log2;
+      CHECK_RESULT(ReadU32Leb128(&alignment_log2, "store alignment"));
+      Address offset;
+      CHECK_RESULT(ReadU32Leb128(&offset, "store offset"));
+
+      CALLBACK(OnAtomicStoreExpr, opcode, alignment_log2, offset);
+      CALLBACK(OnOpcodeUint32Uint32, alignment_log2, offset);
+      break;
+    }
+
+    case Opcode::I32AtomicRmwAdd:
+    case Opcode::I64AtomicRmwAdd:
+    case Opcode::I32AtomicRmw8AddU:
+    case Opcode::I32AtomicRmw16AddU:
+    case Opcode::I64AtomicRmw8AddU:
+    case Opcode::I64AtomicRmw16AddU:
+    case Opcode::I64AtomicRmw32AddU:
+    case Opcode::I32AtomicRmwSub:
+    case Opcode::I64AtomicRmwSub:
+    case Opcode::I32AtomicRmw8SubU:
+    case Opcode::I32AtomicRmw16SubU:
+    case Opcode::I64AtomicRmw8SubU:
+    case Opcode::I64AtomicRmw16SubU:
+    case Opcode::I64AtomicRmw32SubU:
+    case Opcode::I32AtomicRmwAnd:
+    case Opcode::I64AtomicRmwAnd:
+    case Opcode::I32AtomicRmw8AndU:
+    case Opcode::I32AtomicRmw16AndU:
+    case Opcode::I64AtomicRmw8AndU:
+    case Opcode::I64AtomicRmw16AndU:
+    case Opcode::I64AtomicRmw32AndU:
+    case Opcode::I32AtomicRmwOr:
+    case Opcode::I64AtomicRmwOr:
+    case Opcode::I32AtomicRmw8OrU:
+    case Opcode::I32AtomicRmw16OrU:
+    case Opcode::I64AtomicRmw8OrU:
+    case Opcode::I64AtomicRmw16OrU:
+    case Opcode::I64AtomicRmw32OrU:
+    case Opcode::I32AtomicRmwXor:
+    case Opcode::I64AtomicRmwXor:
+    case Opcode::I32AtomicRmw8XorU:
+    case Opcode::I32AtomicRmw16XorU:
+    case Opcode::I64AtomicRmw8XorU:
+    case Opcode::I64AtomicRmw16XorU:
+    case Opcode::I64AtomicRmw32XorU:
+    case Opcode::I32AtomicRmwXchg:
+    case Opcode::I64AtomicRmwXchg:
+    case Opcode::I32AtomicRmw8XchgU:
+    case Opcode::I32AtomicRmw16XchgU:
+    case Opcode::I64AtomicRmw8XchgU:
+    case Opcode::I64AtomicRmw16XchgU:
+    case Opcode::I64AtomicRmw32XchgU: {
+      uint32_t alignment_log2;
+      CHECK_RESULT(ReadU32Leb128(&alignment_log2, "memory alignment"));
+      Address offset;
+      CHECK_RESULT(ReadU32Leb128(&offset, "memory offset"));
+
+      CALLBACK(OnAtomicRmwExpr, opcode, alignment_log2, offset);
+      CALLBACK(OnOpcodeUint32Uint32, alignment_log2, offset);
+      break;
+    }
+
+    case Opcode::I32AtomicRmwCmpxchg:
+    case Opcode::I64AtomicRmwCmpxchg:
+    case Opcode::I32AtomicRmw8CmpxchgU:
+    case Opcode::I32AtomicRmw16CmpxchgU:
+    case Opcode::I64AtomicRmw8CmpxchgU:
+    case Opcode::I64AtomicRmw16CmpxchgU:
+    case Opcode::I64AtomicRmw32CmpxchgU: {
+      uint32_t alignment_log2;
+      CHECK_RESULT(ReadU32Leb128(&alignment_log2, "memory alignment"));
+      Address offset;
+      CHECK_RESULT(ReadU32Leb128(&offset, "memory offset"));
+
+      CALLBACK(OnAtomicRmwCmpxchgExpr, opcode, alignment_log2, offset);
+      CALLBACK(OnOpcodeUint32Uint32, alignment_log2, offset);
+      break;
+    }
+
+    case Opcode::TableInit: {
+      Index segment;
+      CHECK_RESULT(ReadIndex(&segment, "elem segment index"));
+      uint8_t reserved;
+      CHECK_RESULT(ReadU8(&reserved, "reserved table index"));
+      ERROR_UNLESS(reserved == 0, "reserved value must be 0");
+      CALLBACK(OnTableInitExpr, segment);
+      CALLBACK(OnOpcodeUint32Uint32, segment, reserved);
+      break;
+    }
+
+    case Opcode::MemoryInit: {
+      Index segment;
+      CHECK_RESULT(ReadIndex(&segment, "elem segment index"));
+      uint8_t reserved;
+      CHECK_RESULT(ReadU8(&reserved, "reserved memory index"));
+      ERROR_UNLESS(reserved == 0, "reserved value must be 0");
+      CALLBACK(OnMemoryInitExpr, segment);
+      CALLBACK(OnOpcodeUint32Uint32, segment, reserved);
+      break;
+    }
+
+    case Opcode::DataDrop:
+    case Opcode::ElemDrop: {
+      Index segment;
+      CHECK_RESULT(ReadIndex(&segment, "segment index"));
+      if (opcode == Opcode::DataDrop) {
+        CALLBACK(OnDataDropExpr, segment);
+      } else {
+        CALLBACK(OnElemDropExpr, segment);
+      }
+      CALLBACK(OnOpcodeUint32, segment);
+      break;
+    }
+
+    case Opcode::MemoryFill: {
+      uint8_t reserved;
+      CHECK_RESULT(ReadU8(&reserved, "reserved memory index"));
+      ERROR_UNLESS(reserved == 0, "reserved value must be 0");
+      CALLBACK(OnMemoryFillExpr);
+      CALLBACK(OnOpcodeUint32, reserved);
+      break;
+    }
+    case Opcode::MemoryCopy: {
+      uint8_t reserved;
+      CHECK_RESULT(ReadU8(&reserved, "reserved memory index"));
+      ERROR_UNLESS(reserved == 0, "reserved value must be 0");
+      CHECK_RESULT(ReadU8(&reserved, "reserved memory index"));
+      ERROR_UNLESS(reserved == 0, "reserved value must be 0");
+      CALLBACK(OnMemoryCopyExpr);
+      CALLBACK(OnOpcodeUint32Uint32, reserved, reserved);
+      break;
+    }
+
+    case Opcode::TableCopy: {
+      uint8_t reserved;
+      CHECK_RESULT(ReadU8(&reserved, "reserved table index"));
+      ERROR_UNLESS(reserved == 0, "reserved value must be 0");
+      CHECK_RESULT(ReadU8(&reserved, "reserved table index"));
+      ERROR_UNLESS(reserved == 0, "reserved value must be 0");
+      CALLBACK(OnTableCopyExpr);
+      CALLBACK(OnOpcodeUint32Uint32, reserved, reserved);
+      break;
+    }
+
+    case Opcode::TableGet: {
+      Index table;
+      CHECK_RESULT(ReadIndex(&table, "table index"));
+      CALLBACK(OnTableGetExpr, table);
+      CALLBACK(OnOpcodeUint32, table);
+      break;
+    }
+
+    case Opcode::TableSet: {
+      Index table;
+      CHECK_RESULT(ReadIndex(&table, "table index"));
+      CALLBACK(OnTableSetExpr, table);
+      CALLBACK(OnOpcodeUint32, table);
+      break;
+    }
+
+    case Opcode::TableGrow: {
+      Index table;
+      CHECK_RESULT(ReadIndex(&table, "table index"));
+      CALLBACK(OnTableGrowExpr, table);
+      CALLBACK(OnOpcodeUint32, table);
+      break;
+    }
+
+    case Opcode::TableSize: {
+      Index table;
+      CHECK_RESULT(ReadIndex(&table, "table index"));
+      CALLBACK(OnTableSizeExpr, table);
+      CALLBACK(OnOpcodeUint32, table);
+      break;
+    }
+
+    case Opcode::RefNull: {
+      CALLBACK(OnRefNullExpr);
+      CALLBACK0(OnOpcodeBare);
+      break;
+    }
+
+    case Opcode::RefIsNull: {
+      CALLBACK(OnRefIsNullExpr);
+      CALLBACK0(OnOpcodeBare);
+      break;
+    }
+
+    default:
+      return ReportUnexpectedOpcode(opcode);
+  }
+
+  return Result::Ok;
+}
+
+
+
+
+Result BinaryReader::PeekOpcodeInFuncBody(Opcode opcode, bool* seen_end_opcode, Offset end_offset) {
+  //printf("PeekOpcodeInFuncBody. state_.peek_offset: %lu    opcode name: %s\n", state_.peek_offset, opcode.GetName());
+  switch (opcode) {
+    case Opcode::Unreachable:
+      break;
+
+    case Opcode::Block: {
+      Type sig_type;
+      CHECK_RESULT(PeekType(&sig_type, "block signature type"));
+      break;
+    }
+
+    case Opcode::Loop: {
+      Type sig_type;
+      CHECK_RESULT(PeekType(&sig_type, "loop signature type"));
+      break;
+    }
+
+    case Opcode::If: {
+      Type sig_type;
+      CHECK_RESULT(PeekType(&sig_type, "if signature type"));
+      break;
+    }
+
+    case Opcode::Else:
+      break;
+
+    case Opcode::Select:
+      break;
+
+    case Opcode::Br: {
+      Index depth;
+      CHECK_RESULT(PeekIndex(&depth, "br depth"));
+      break;
+    }
+
+    case Opcode::BrIf: {
+      Index depth;
+      CHECK_RESULT(PeekIndex(&depth, "br_if depth"));
+      break;
+    }
+
+    case Opcode::BrTable: {
+      Index num_targets;
+      CHECK_RESULT(PeekIndex(&num_targets, "br_table target count"));
+      target_depths_.resize(num_targets);
+
+      for (Index i = 0; i < num_targets; ++i) {
+        Index target_depth;
+        CHECK_RESULT(PeekIndex(&target_depth, "br_table target depth"));
+        target_depths_[i] = target_depth;
+      }
+
+      Index default_target_depth;
+      CHECK_RESULT(
+          PeekIndex(&default_target_depth, "br_table default target depth"));
+
+      break;
+    }
+
+    case Opcode::Return:
+      break;
+
+    case Opcode::Nop:
+      break;
+
+    case Opcode::Drop:
+      break;
+
+    case Opcode::End:
+      break;
+
+    case Opcode::I32Const: {
+      uint32_t value;
+      CHECK_RESULT(PeekS32Leb128(&value, "i32.const value"));
+      break;
+    }
+
+    case Opcode::I64Const: {
+      uint64_t value;
+      CHECK_RESULT(PeekS64Leb128(&value, "i64.const value"));
+      break;
+    }
+
+    case Opcode::F32Const: {
+      uint32_t value_bits = 0;
+      CHECK_RESULT(PeekF32(&value_bits, "f32.const value"));
+      break;
+    }
+
+    case Opcode::F64Const: {
+      uint64_t value_bits = 0;
+      CHECK_RESULT(PeekF64(&value_bits, "f64.const value"));
+      break;
+    }
+
+    case Opcode::V128Const: {
+      v128 value_bits;
+      ZeroMemory(value_bits);
+      CHECK_RESULT(PeekV128(&value_bits, "v128.const value"));
+      break;
+    }
+
+    case Opcode::GlobalGet: {
+      Index global_index;
+      CHECK_RESULT(PeekIndex(&global_index, "global.get global index"));
+      break;
+    }
+
+    // here's where LocalGet is handled.
+    case Opcode::LocalGet: {
+      Index local_index;
+      CHECK_RESULT(PeekIndex(&local_index, "local.get local index"));
+      break;
+    }
+
+    case Opcode::GlobalSet: {
+      Index global_index;
+      CHECK_RESULT(PeekIndex(&global_index, "global.set global index"));
+      break;
+    }
+
+    case Opcode::LocalSet: {
+      Index local_index;
+      CHECK_RESULT(PeekIndex(&local_index, "local.set local index"));
+      break;
+    }
+
+    case Opcode::Call: {
+      Index func_index;
+      CHECK_RESULT(PeekIndex(&func_index, "call function index"));
+      break;
+    }
+
+    case Opcode::CallIndirect: {
+      Index sig_index;
+      CHECK_RESULT(PeekIndex(&sig_index, "call_indirect signature index"));
+      ERROR_UNLESS(sig_index < num_signatures_,
+                   "invalid call_indirect signature index");
+      Index table_index = 0;
+      if (options_.features.reference_types_enabled()) {
+        CHECK_RESULT(PeekIndex(&table_index, "call_indirect table index"));
+        ERROR_UNLESS(table_index < NumTotalTables(),
+                     "invalid call_indirect table index");
+      } else {
+        uint8_t reserved;
+        CHECK_RESULT(PeekU8(&reserved, "call_indirect reserved"));
+        ERROR_UNLESS(reserved == 0,
+                         "call_indirect reserved value must be 0");
+      }
+      break;
+    }
+
+    case Opcode::ReturnCall: {
+      Index func_index;
+      CHECK_RESULT(PeekIndex(&func_index, "return_call"));
+      break;
+    }
+
+    case Opcode::ReturnCallIndirect: {
+      Index sig_index;
+      CHECK_RESULT(PeekIndex(&sig_index, "return_call_indirect"));
+      ERROR_UNLESS(sig_index < num_signatures_,
+                   "invalid return_call_indirect signature index");
+      Index table_index = 0;
+      if (options_.features.reference_types_enabled()) {
+        CHECK_RESULT(PeekIndex(&table_index, "return_call_indirect table index"));
+        ERROR_UNLESS(table_index < NumTotalTables(),
+                     "invalid return_call_indirect table index");
+      } else {
+        uint8_t reserved;
+        CHECK_RESULT(PeekU8(&reserved, "return_call_indirect reserved"));
+        ERROR_UNLESS(reserved == 0,
+                         "return_call_indirect reserved value must be 0");
+      }
+      break;
+    }
+
+    case Opcode::LocalTee: {
+      Index local_index;
+      CHECK_RESULT(PeekIndex(&local_index, "local.tee local index"));
+      break;
+    }
+
+    case Opcode::I32Load8S:
+    case Opcode::I32Load8U:
+    case Opcode::I32Load16S:
+    case Opcode::I32Load16U:
+    case Opcode::I64Load8S:
+    case Opcode::I64Load8U:
+    case Opcode::I64Load16S:
+    case Opcode::I64Load16U:
+    case Opcode::I64Load32S:
+    case Opcode::I64Load32U:
+    case Opcode::I32Load:
+    case Opcode::I64Load:
+    case Opcode::F32Load:
+    case Opcode::F64Load:
+    case Opcode::V128Load: {
+      uint32_t alignment_log2;
+      CHECK_RESULT(PeekU32Leb128(&alignment_log2, "load alignment"));
+      Address offset;
+      CHECK_RESULT(PeekU32Leb128(&offset, "load offset"));
+
+      break;
+    }
+
+    case Opcode::I32Store8:
+    case Opcode::I32Store16:
+    case Opcode::I64Store8:
+    case Opcode::I64Store16:
+    case Opcode::I64Store32:
+    case Opcode::I32Store:
+    case Opcode::I64Store:
+    case Opcode::F32Store:
+    case Opcode::F64Store:
+    case Opcode::V128Store: {
+      uint32_t alignment_log2;
+      CHECK_RESULT(PeekU32Leb128(&alignment_log2, "store alignment"));
+      Address offset;
+      CHECK_RESULT(PeekU32Leb128(&offset, "store offset"));
+
+      break;
+    }
+
+    case Opcode::MemorySize: {
+      uint8_t reserved;
+      CHECK_RESULT(PeekU8(&reserved, "memory.size reserved"));
+      break;
+    }
+
+    case Opcode::MemoryGrow: {
+      uint8_t reserved;
+      CHECK_RESULT(PeekU8(&reserved, "memory.grow reserved"));
+      break;
+    }
+
+    case Opcode::I32Add:
+    case Opcode::I32Sub:
+    case Opcode::I32Mul:
+    case Opcode::I32DivS:
+    case Opcode::I32DivU:
+    case Opcode::I32RemS:
+    case Opcode::I32RemU:
+    case Opcode::I32And:
+    case Opcode::I32Or:
+    case Opcode::I32Xor:
+    case Opcode::I32Shl:
+    case Opcode::I32ShrU:
+    case Opcode::I32ShrS:
+    case Opcode::I32Rotr:
+    case Opcode::I32Rotl:
+    case Opcode::I64Add:
+    case Opcode::I64Sub:
+    case Opcode::I64Mul:
+    case Opcode::I64DivS:
+    case Opcode::I64DivU:
+    case Opcode::I64RemS:
+    case Opcode::I64RemU:
+    case Opcode::I64And:
+    case Opcode::I64Or:
+    case Opcode::I64Xor:
+    case Opcode::I64Shl:
+    case Opcode::I64ShrU:
+    case Opcode::I64ShrS:
+    case Opcode::I64Rotr:
+    case Opcode::I64Rotl:
+    case Opcode::F32Add:
+    case Opcode::F32Sub:
+    case Opcode::F32Mul:
+    case Opcode::F32Div:
+    case Opcode::F32Min:
+    case Opcode::F32Max:
+    case Opcode::F32Copysign:
+    case Opcode::F64Add:
+    case Opcode::F64Sub:
+    case Opcode::F64Mul:
+    case Opcode::F64Div:
+    case Opcode::F64Min:
+    case Opcode::F64Max:
+    case Opcode::F64Copysign:
+    case Opcode::I8X16Add:
+    case Opcode::I16X8Add:
+    case Opcode::I32X4Add:
+    case Opcode::I64X2Add:
+    case Opcode::I8X16Sub:
+    case Opcode::I16X8Sub:
+    case Opcode::I32X4Sub:
+    case Opcode::I64X2Sub:
+    case Opcode::I8X16Mul:
+    case Opcode::I16X8Mul:
+    case Opcode::I32X4Mul:
+    case Opcode::I8X16AddSaturateS:
+    case Opcode::I8X16AddSaturateU:
+    case Opcode::I16X8AddSaturateS:
+    case Opcode::I16X8AddSaturateU:
+    case Opcode::I8X16SubSaturateS:
+    case Opcode::I8X16SubSaturateU:
+    case Opcode::I16X8SubSaturateS:
+    case Opcode::I16X8SubSaturateU:
+    case Opcode::I8X16Shl:
+    case Opcode::I16X8Shl:
+    case Opcode::I32X4Shl:
+    case Opcode::I64X2Shl:
+    case Opcode::I8X16ShrS:
+    case Opcode::I8X16ShrU:
+    case Opcode::I16X8ShrS:
+    case Opcode::I16X8ShrU:
+    case Opcode::I32X4ShrS:
+    case Opcode::I32X4ShrU:
+    case Opcode::I64X2ShrS:
+    case Opcode::I64X2ShrU:
+    case Opcode::V128And:
+    case Opcode::V128Or:
+    case Opcode::V128Xor:
+    case Opcode::F32X4Min:
+    case Opcode::F64X2Min:
+    case Opcode::F32X4Max:
+    case Opcode::F64X2Max:
+    case Opcode::F32X4Add:
+    case Opcode::F64X2Add:
+    case Opcode::F32X4Sub:
+    case Opcode::F64X2Sub:
+    case Opcode::F32X4Div:
+    case Opcode::F64X2Div:
+    case Opcode::F32X4Mul:
+    case Opcode::F64X2Mul:
+      break;
+
+    case Opcode::I32Eq:
+    case Opcode::I32Ne:
+    case Opcode::I32LtS:
+    case Opcode::I32LeS:
+    case Opcode::I32LtU:
+    case Opcode::I32LeU:
+    case Opcode::I32GtS:
+    case Opcode::I32GeS:
+    case Opcode::I32GtU:
+    case Opcode::I32GeU:
+    case Opcode::I64Eq:
+    case Opcode::I64Ne:
+    case Opcode::I64LtS:
+    case Opcode::I64LeS:
+    case Opcode::I64LtU:
+    case Opcode::I64LeU:
+    case Opcode::I64GtS:
+    case Opcode::I64GeS:
+    case Opcode::I64GtU:
+    case Opcode::I64GeU:
+    case Opcode::F32Eq:
+    case Opcode::F32Ne:
+    case Opcode::F32Lt:
+    case Opcode::F32Le:
+    case Opcode::F32Gt:
+    case Opcode::F32Ge:
+    case Opcode::F64Eq:
+    case Opcode::F64Ne:
+    case Opcode::F64Lt:
+    case Opcode::F64Le:
+    case Opcode::F64Gt:
+    case Opcode::F64Ge:
+    case Opcode::I8X16Eq:
+    case Opcode::I16X8Eq:
+    case Opcode::I32X4Eq:
+    case Opcode::F32X4Eq:
+    case Opcode::F64X2Eq:
+    case Opcode::I8X16Ne:
+    case Opcode::I16X8Ne:
+    case Opcode::I32X4Ne:
+    case Opcode::F32X4Ne:
+    case Opcode::F64X2Ne:
+    case Opcode::I8X16LtS:
+    case Opcode::I8X16LtU:
+    case Opcode::I16X8LtS:
+    case Opcode::I16X8LtU:
+    case Opcode::I32X4LtS:
+    case Opcode::I32X4LtU:
+    case Opcode::F32X4Lt:
+    case Opcode::F64X2Lt:
+    case Opcode::I8X16LeS:
+    case Opcode::I8X16LeU:
+    case Opcode::I16X8LeS:
+    case Opcode::I16X8LeU:
+    case Opcode::I32X4LeS:
+    case Opcode::I32X4LeU:
+    case Opcode::F32X4Le:
+    case Opcode::F64X2Le:
+    case Opcode::I8X16GtS:
+    case Opcode::I8X16GtU:
+    case Opcode::I16X8GtS:
+    case Opcode::I16X8GtU:
+    case Opcode::I32X4GtS:
+    case Opcode::I32X4GtU:
+    case Opcode::F32X4Gt:
+    case Opcode::F64X2Gt:
+    case Opcode::I8X16GeS:
+    case Opcode::I8X16GeU:
+    case Opcode::I16X8GeS:
+    case Opcode::I16X8GeU:
+    case Opcode::I32X4GeS:
+    case Opcode::I32X4GeU:
+    case Opcode::F32X4Ge:
+    case Opcode::F64X2Ge:
+      break;
+
+    case Opcode::I32Clz:
+    case Opcode::I32Ctz:
+    case Opcode::I32Popcnt:
+    case Opcode::I64Clz:
+    case Opcode::I64Ctz:
+    case Opcode::I64Popcnt:
+    case Opcode::F32Abs:
+    case Opcode::F32Neg:
+    case Opcode::F32Ceil:
+    case Opcode::F32Floor:
+    case Opcode::F32Trunc:
+    case Opcode::F32Nearest:
+    case Opcode::F32Sqrt:
+    case Opcode::F64Abs:
+    case Opcode::F64Neg:
+    case Opcode::F64Ceil:
+    case Opcode::F64Floor:
+    case Opcode::F64Trunc:
+    case Opcode::F64Nearest:
+    case Opcode::F64Sqrt:
+    case Opcode::I8X16Splat:
+    case Opcode::I16X8Splat:
+    case Opcode::I32X4Splat:
+    case Opcode::I64X2Splat:
+    case Opcode::F32X4Splat:
+    case Opcode::F64X2Splat:
+    case Opcode::I8X16Neg:
+    case Opcode::I16X8Neg:
+    case Opcode::I32X4Neg:
+    case Opcode::I64X2Neg:
+    case Opcode::V128Not:
+    case Opcode::I8X16AnyTrue:
+    case Opcode::I16X8AnyTrue:
+    case Opcode::I32X4AnyTrue:
+    case Opcode::I64X2AnyTrue:
+    case Opcode::I8X16AllTrue:
+    case Opcode::I16X8AllTrue:
+    case Opcode::I32X4AllTrue:
+    case Opcode::I64X2AllTrue:
+    case Opcode::F32X4Neg:
+    case Opcode::F64X2Neg:
+    case Opcode::F32X4Abs:
+    case Opcode::F64X2Abs:
+    case Opcode::F32X4Sqrt:
+    case Opcode::F64X2Sqrt:
+      break;
+
+    case Opcode::V128BitSelect:
+      break;
+
+    case Opcode::I8X16ExtractLaneS:
+    case Opcode::I8X16ExtractLaneU:
+    case Opcode::I16X8ExtractLaneS:
+    case Opcode::I16X8ExtractLaneU:
+    case Opcode::I32X4ExtractLane:
+    case Opcode::I64X2ExtractLane:
+    case Opcode::F32X4ExtractLane:
+    case Opcode::F64X2ExtractLane:
+    case Opcode::I8X16ReplaceLane:
+    case Opcode::I16X8ReplaceLane:
+    case Opcode::I32X4ReplaceLane:
+    case Opcode::I64X2ReplaceLane:
+    case Opcode::F32X4ReplaceLane:
+    case Opcode::F64X2ReplaceLane: {
+      uint8_t lane_val;
+      CHECK_RESULT(PeekU8(&lane_val, "Lane idx"));
+      break;
+    }
+
+    case Opcode::V8X16Shuffle: {
+      v128 value;
+      CHECK_RESULT(PeekV128(&value, "Lane idx [16]"));
+      break;
+    }
+
+    case Opcode::I32TruncF32S:
+    case Opcode::I32TruncF64S:
+    case Opcode::I32TruncF32U:
+    case Opcode::I32TruncF64U:
+    case Opcode::I32WrapI64:
+    case Opcode::I64TruncF32S:
+    case Opcode::I64TruncF64S:
+    case Opcode::I64TruncF32U:
+    case Opcode::I64TruncF64U:
+    case Opcode::I64ExtendI32S:
+    case Opcode::I64ExtendI32U:
+    case Opcode::F32ConvertI32S:
+    case Opcode::F32ConvertI32U:
+    case Opcode::F32ConvertI64S:
+    case Opcode::F32ConvertI64U:
+    case Opcode::F32DemoteF64:
+    case Opcode::F32ReinterpretI32:
+    case Opcode::F64ConvertI32S:
+    case Opcode::F64ConvertI32U:
+    case Opcode::F64ConvertI64S:
+    case Opcode::F64ConvertI64U:
+    case Opcode::F64PromoteF32:
+    case Opcode::F64ReinterpretI64:
+    case Opcode::I32ReinterpretF32:
+    case Opcode::I64ReinterpretF64:
+    case Opcode::I32Eqz:
+    case Opcode::I64Eqz:
+    case Opcode::F32X4ConvertI32X4S:
+    case Opcode::F32X4ConvertI32X4U:
+    case Opcode::F64X2ConvertI64X2S:
+    case Opcode::F64X2ConvertI64X2U:
+    case Opcode::I32X4TruncSatF32X4S:
+    case Opcode::I32X4TruncSatF32X4U:
+    case Opcode::I64X2TruncSatF64X2S:
+    case Opcode::I64X2TruncSatF64X2U:
+      break;
+
+    case Opcode::Try: {
+      Type sig_type;
+      CHECK_RESULT(PeekType(&sig_type, "try signature type"));
+
+      break;
+    }
+
+    case Opcode::Catch: {
+      break;
+    }
+
+    case Opcode::Rethrow: {
+      break;
+    }
+
+    case Opcode::Throw: {
+      Index index;
+      CHECK_RESULT(PeekIndex(&index, "event index"));
+      break;
+    }
+
+    case Opcode::BrOnExn: {
+      Index depth;
+      Index index;
+      CHECK_RESULT(PeekIndex(&depth, "br_on_exn depth"));
+      CHECK_RESULT(PeekIndex(&index, "event index"));
+      break;
+    }
+
+    case Opcode::I32Extend8S:
+    case Opcode::I32Extend16S:
+    case Opcode::I64Extend8S:
+    case Opcode::I64Extend16S:
+    case Opcode::I64Extend32S:
+      break;
+
+    case Opcode::I32TruncSatF32S:
+    case Opcode::I32TruncSatF32U:
+    case Opcode::I32TruncSatF64S:
+    case Opcode::I32TruncSatF64U:
+    case Opcode::I64TruncSatF32S:
+    case Opcode::I64TruncSatF32U:
+    case Opcode::I64TruncSatF64S:
+    case Opcode::I64TruncSatF64U:
+      break;
+
+    case Opcode::AtomicNotify: {
+      uint32_t alignment_log2;
+      CHECK_RESULT(PeekU32Leb128(&alignment_log2, "load alignment"));
+      Address offset;
+      CHECK_RESULT(PeekU32Leb128(&offset, "load offset"));
+
+      break;
+    }
+
+    case Opcode::I32AtomicWait:
+    case Opcode::I64AtomicWait: {
+      uint32_t alignment_log2;
+      CHECK_RESULT(PeekU32Leb128(&alignment_log2, "load alignment"));
+      Address offset;
+      CHECK_RESULT(PeekU32Leb128(&offset, "load offset"));
+
+      break;
+    }
+
+    case Opcode::I32AtomicLoad8U:
+    case Opcode::I32AtomicLoad16U:
+    case Opcode::I64AtomicLoad8U:
+    case Opcode::I64AtomicLoad16U:
+    case Opcode::I64AtomicLoad32U:
+    case Opcode::I32AtomicLoad:
+    case Opcode::I64AtomicLoad: {
+      uint32_t alignment_log2;
+      CHECK_RESULT(PeekU32Leb128(&alignment_log2, "load alignment"));
+      Address offset;
+      CHECK_RESULT(PeekU32Leb128(&offset, "load offset"));
+
+      break;
+    }
+
+    case Opcode::I32AtomicStore8:
+    case Opcode::I32AtomicStore16:
+    case Opcode::I64AtomicStore8:
+    case Opcode::I64AtomicStore16:
+    case Opcode::I64AtomicStore32:
+    case Opcode::I32AtomicStore:
+    case Opcode::I64AtomicStore: {
+      uint32_t alignment_log2;
+      CHECK_RESULT(PeekU32Leb128(&alignment_log2, "store alignment"));
+      Address offset;
+      CHECK_RESULT(PeekU32Leb128(&offset, "store offset"));
+
+      break;
+    }
+
+    case Opcode::I32AtomicRmwAdd:
+    case Opcode::I64AtomicRmwAdd:
+    case Opcode::I32AtomicRmw8AddU:
+    case Opcode::I32AtomicRmw16AddU:
+    case Opcode::I64AtomicRmw8AddU:
+    case Opcode::I64AtomicRmw16AddU:
+    case Opcode::I64AtomicRmw32AddU:
+    case Opcode::I32AtomicRmwSub:
+    case Opcode::I64AtomicRmwSub:
+    case Opcode::I32AtomicRmw8SubU:
+    case Opcode::I32AtomicRmw16SubU:
+    case Opcode::I64AtomicRmw8SubU:
+    case Opcode::I64AtomicRmw16SubU:
+    case Opcode::I64AtomicRmw32SubU:
+    case Opcode::I32AtomicRmwAnd:
+    case Opcode::I64AtomicRmwAnd:
+    case Opcode::I32AtomicRmw8AndU:
+    case Opcode::I32AtomicRmw16AndU:
+    case Opcode::I64AtomicRmw8AndU:
+    case Opcode::I64AtomicRmw16AndU:
+    case Opcode::I64AtomicRmw32AndU:
+    case Opcode::I32AtomicRmwOr:
+    case Opcode::I64AtomicRmwOr:
+    case Opcode::I32AtomicRmw8OrU:
+    case Opcode::I32AtomicRmw16OrU:
+    case Opcode::I64AtomicRmw8OrU:
+    case Opcode::I64AtomicRmw16OrU:
+    case Opcode::I64AtomicRmw32OrU:
+    case Opcode::I32AtomicRmwXor:
+    case Opcode::I64AtomicRmwXor:
+    case Opcode::I32AtomicRmw8XorU:
+    case Opcode::I32AtomicRmw16XorU:
+    case Opcode::I64AtomicRmw8XorU:
+    case Opcode::I64AtomicRmw16XorU:
+    case Opcode::I64AtomicRmw32XorU:
+    case Opcode::I32AtomicRmwXchg:
+    case Opcode::I64AtomicRmwXchg:
+    case Opcode::I32AtomicRmw8XchgU:
+    case Opcode::I32AtomicRmw16XchgU:
+    case Opcode::I64AtomicRmw8XchgU:
+    case Opcode::I64AtomicRmw16XchgU:
+    case Opcode::I64AtomicRmw32XchgU: {
+      uint32_t alignment_log2;
+      CHECK_RESULT(PeekU32Leb128(&alignment_log2, "memory alignment"));
+      Address offset;
+      CHECK_RESULT(PeekU32Leb128(&offset, "memory offset"));
+
+      break;
+    }
+
+    case Opcode::I32AtomicRmwCmpxchg:
+    case Opcode::I64AtomicRmwCmpxchg:
+    case Opcode::I32AtomicRmw8CmpxchgU:
+    case Opcode::I32AtomicRmw16CmpxchgU:
+    case Opcode::I64AtomicRmw8CmpxchgU:
+    case Opcode::I64AtomicRmw16CmpxchgU:
+    case Opcode::I64AtomicRmw32CmpxchgU: {
+      uint32_t alignment_log2;
+      CHECK_RESULT(PeekU32Leb128(&alignment_log2, "memory alignment"));
+      Address offset;
+      CHECK_RESULT(PeekU32Leb128(&offset, "memory offset"));
+
+      break;
+    }
+
+    case Opcode::TableInit: {
+      Index segment;
+      CHECK_RESULT(PeekIndex(&segment, "elem segment index"));
+      uint8_t reserved;
+      CHECK_RESULT(PeekU8(&reserved, "reserved table index"));
+      ERROR_UNLESS(reserved == 0, "reserved value must be 0");
+      break;
+    }
+
+    case Opcode::MemoryInit: {
+      Index segment;
+      CHECK_RESULT(PeekIndex(&segment, "elem segment index"));
+      uint8_t reserved;
+      CHECK_RESULT(PeekU8(&reserved, "reserved memory index"));
+      ERROR_UNLESS(reserved == 0, "reserved value must be 0");
+      break;
+    }
+
+    case Opcode::DataDrop:
+    case Opcode::ElemDrop: {
+      Index segment;
+      CHECK_RESULT(PeekIndex(&segment, "segment index"));
+
+      break;
+    }
+
+    case Opcode::MemoryFill: {
+      uint8_t reserved;
+      CHECK_RESULT(PeekU8(&reserved, "reserved memory index"));
+      ERROR_UNLESS(reserved == 0, "reserved value must be 0");
+
+      break;
+    }
+    case Opcode::MemoryCopy: {
+      uint8_t reserved;
+      CHECK_RESULT(PeekU8(&reserved, "reserved memory index"));
+      ERROR_UNLESS(reserved == 0, "reserved value must be 0");
+      CHECK_RESULT(PeekU8(&reserved, "reserved memory index"));
+      ERROR_UNLESS(reserved == 0, "reserved value must be 0");
+
+      break;
+    }
+
+    case Opcode::TableCopy: {
+      uint8_t reserved;
+      CHECK_RESULT(PeekU8(&reserved, "reserved table index"));
+      ERROR_UNLESS(reserved == 0, "reserved value must be 0");
+      CHECK_RESULT(PeekU8(&reserved, "reserved table index"));
+      ERROR_UNLESS(reserved == 0, "reserved value must be 0");
+
+      break;
+    }
+
+    case Opcode::TableGet: {
+      Index table;
+      CHECK_RESULT(PeekIndex(&table, "table index"));
+
+      break;
+    }
+
+    case Opcode::TableSet: {
+      Index table;
+      CHECK_RESULT(PeekIndex(&table, "table index"));
+
+      break;
+    }
+
+    case Opcode::TableGrow: {
+      Index table;
+      CHECK_RESULT(PeekIndex(&table, "table index"));
+
+      break;
+    }
+
+    case Opcode::TableSize: {
+      Index table;
+      CHECK_RESULT(PeekIndex(&table, "table index"));
+
+      break;
+    }
+
+    case Opcode::RefNull: {
+
+      break;
+    }
+
+    case Opcode::RefIsNull: {
+
+      break;
+    }
+
+    default:
+      return ReportUnexpectedOpcode(opcode);
+  }
+
+  return Result::Ok;
+}
+
+
+
 
 Result BinaryReader::ReadNameSection(Offset section_size) {
   CALLBACK(BeginNamesSection, section_size);
