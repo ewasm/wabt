@@ -176,6 +176,15 @@ class BinaryReaderLogging : public BinaryReaderDelegate {
                     uint32_t alignment_log2,
                     Address offset) override;
   Result OnLocalGetExpr(Index local_index) override;
+
+  Result OnLocalGetLocalGetI64BinOpExpr(Opcode opcode, Index local_index, Index local_index_next) override;
+  Result OnLocalGetI64ConstI64BinOpExpr(Opcode opcode, Index local_index, uint64_t i64const_value) override;
+  Result OnI64ConstI64BinOpExpr(Opcode opcode, uint64_t i64const_value) override;
+
+  Result OnLocalGetLocalGetI32BinOpExpr(Opcode opcode, Index local_index, Index local_index_next) override;
+  Result OnLocalGetI32ConstI32BinOpExpr(Opcode opcode, Index local_index, uint32_t i32const_value) override;
+  Result OnI32ConstI32BinOpExpr(Opcode opcode, uint32_t i32const_value) override;
+
   Result OnLocalSetExpr(Index local_index) override;
   Result OnLocalTeeExpr(Index local_index) override;
   Result OnLoopExpr(Type sig_type) override;

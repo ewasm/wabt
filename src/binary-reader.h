@@ -60,6 +60,7 @@ class BinaryReaderDelegate {
     const uint8_t* data;
     Offset size;
     Offset offset;
+    Offset peek_offset;
   };
 
   virtual ~BinaryReaderDelegate() {}
@@ -232,6 +233,15 @@ class BinaryReaderDelegate {
                             uint32_t alignment_log2,
                             Address offset) = 0;
   virtual Result OnLocalGetExpr(Index local_index) = 0;
+
+  virtual Result OnLocalGetLocalGetI64BinOpExpr(Opcode opcode, Index local_index, Index local_index_next) = 0;
+  virtual Result OnLocalGetI64ConstI64BinOpExpr(Opcode opcode, Index local_index, uint64_t i64const_value) = 0;
+  virtual Result OnI64ConstI64BinOpExpr(Opcode opcode, uint64_t i64const_value) = 0;
+
+  virtual Result OnLocalGetLocalGetI32BinOpExpr(Opcode opcode, Index local_index, Index local_index_next) = 0;
+  virtual Result OnLocalGetI32ConstI32BinOpExpr(Opcode opcode, Index local_index, uint32_t i32const_value) = 0;
+  virtual Result OnI32ConstI32BinOpExpr(Opcode opcode, uint32_t i32const_value) = 0;
+
   virtual Result OnLocalSetExpr(Index local_index) = 0;
   virtual Result OnLocalTeeExpr(Index local_index) = 0;
   virtual Result OnLoopExpr(Type sig_type) = 0;
