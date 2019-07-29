@@ -37,6 +37,8 @@
 #include "src/wast-lexer.h"
 #include "src/wast-parser.h"
 
+#include "src/scout/scout.h"
+
 using namespace wabt;
 using namespace wabt::interp;
 
@@ -200,6 +202,10 @@ static void InitEnvironment(Environment* env) {
       return true;
     };
   }
+
+  // append scout host functions
+  HostModule* env_for_scout = env->AppendHostModule("env");
+  AppendScoutFuncs(env, env_for_scout);
 }
 
 static wabt::Result ReadAndRunModule(const char* module_filename) {
