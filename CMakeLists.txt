@@ -276,6 +276,9 @@ if (NOT EMSCRIPTEN)
     add_executable(${EXE_NAME} ${EXE_SOURCES})
     add_dependencies(everything ${EXE_NAME})
     target_link_libraries(${EXE_NAME} ${EXE_LIBS})
+    # TODO: include google/benchmark in third_party
+    # the libbenchmark.a location used here assumes a google/benchmark global install
+    target_link_libraries(${EXE_NAME} /usr/local/lib/libbenchmark.a)
     set_property(TARGET ${EXE_NAME} PROPERTY CXX_STANDARD 11)
     set_property(TARGET ${EXE_NAME} PROPERTY CXX_STANDARD_REQUIRED ON)
 
@@ -342,6 +345,14 @@ if (NOT EMSCRIPTEN)
       INSTALL
     )
 
+    # benchmark-interp
+    wabt_executable(
+      NAME benchmark-interp
+      SOURCES src/tools/benchmark-interp.cc
+      WITH_LIBM
+      INSTALL
+    )
+
     # spectest-interp
     wabt_executable(
       NAME spectest-interp
@@ -382,6 +393,9 @@ if (NOT EMSCRIPTEN)
       include_directories(
         third_party/gtest/googletest
         third_party/gtest/googletest/include
+        # /usr/local/include is for a google/benchmark global install
+        # TODO: include google/benchmark in third_party
+        /usr/local/include
       )
 
       # gtest
