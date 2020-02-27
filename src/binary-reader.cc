@@ -759,6 +759,7 @@ Result BinaryReader::ReadFunctionBody(Offset end_offset) {
       *
       * since this is buggy and the speedup is small for bignum-heavy stuff, it is commented out for now.
 
+      */
 
       if (opcode_back.GetCode() >= 0x7c && opcode_back.GetCode() <= 0x8a) {
         // I64BinOp
@@ -913,7 +914,7 @@ Result BinaryReader::ReadFunctionBody(Offset end_offset) {
             //printf("got Const,LocalGet,I64BinOp!!\n");
           }
       }
-      */
+
 
 
        if (opcode_back.GetCode() >= 0x6a && opcode_back.GetCode() <= 0x78) {

@@ -106,7 +106,10 @@ void AppendScoutFuncs(wabt::interp::Environment* env, wabt::interp::HostModule* 
       interp::TypedValues& results
     ) {
       // TODO: read prestateRoot from a scout yaml file
-      unsigned char prestateRoot[] = {0xb3, 0xc4, 0x18, 0xcb, 0x00, 0xad, 0x7c, 0x90, 0x71, 0x76, 0xbe, 0x86, 0xa5, 0xa2, 0x17, 0x59, 0xb7, 0x4b, 0xd3, 0x82, 0x8e, 0xd6, 0x2a, 0x1e, 0xa2, 0xae, 0x8d, 0xae, 0xa9, 0x8c, 0x5d, 0xa2};
+
+      /***** this is the prestate for the biturbo test case turbo-token-realistic.yaml *****/
+      // d2aa91ce2a8031c942f08f7ce4c73843cd6f6a3086649c66ac9bb0528afce5b3
+      unsigned char prestateRoot[] = {0xd2, 0xaa, 0x91, 0xce, 0x2a, 0x80, 0x31, 0xc9, 0x42, 0xf0, 0x8f, 0x7c, 0xe4, 0xc7, 0x38, 0x43, 0xcd, 0x6f, 0x6a, 0x30, 0x86, 0x64, 0x9c, 0x66, 0xac, 0x9b, 0xb0, 0x52, 0x8a, 0xfc, 0xe5, 0xb3};
 
       // printf("eth2_loadPreStateRoot mem_pos: %llu\n", args[0].value.i32);
 
@@ -156,6 +159,9 @@ void AppendScoutFuncs(wabt::interp::Environment* env, wabt::interp::HostModule* 
         sprintf(&buffer[2*j], "%02X", postStateData[j]);
 
       std::cout << "eth2_savePostStateRoot: " << std::hex << buffer << std::endl;
+      /**** turbo-token test case should print ******
+      *     eth2_savePostStateRoot: 3BD1887043B7B8C14B91CCB713A9C900
+      */
 
 
       return interp::Result::Ok;

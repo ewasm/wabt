@@ -112,10 +112,13 @@ Memory* EwasmMem;
 intx::uint256* BignumStack[1000];
 
 // for bn128
-//intx::uint256 BignumModulus = intx::from_string<intx::uint256>("21888242871839275222246405745257275088696311157297823662689037894645226208583");
-//intx::uint256 BignumInv = intx::from_string<intx::uint256>("211173256549385567650468519415768310665");
+intx::uint256 BignumModulus = intx::from_string<intx::uint256>("21888242871839275222246405745257275088696311157297823662689037894645226208583");
+intx::uint256 BignumInv = intx::from_string<intx::uint256>("211173256549385567650468519415768310665");
+intx::uint256 BignumRsquared = intx::from_string<intx::uint256>("3096616502983703923843567936837374451735540968419076528771170197431451843209");
+intx::uint256 BignumOne = intx::from_string<intx::uint256>("1");
 
 
+/*
 // for secp256k1
 // modulus = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f
 // inv = 0xbcb223fedc24a059d838091dd2253531
@@ -124,7 +127,7 @@ intx::uint256 BignumModulus = intx::from_string<intx::uint256>("1157920892373161
 intx::uint256 BignumInv = intx::from_string<intx::uint256>("250819822124803770581580479000962479409");
 intx::uint256 BignumRsquared = intx::from_string<intx::uint256>("18446752466076602529");
 intx::uint256 BignumOne = intx::from_string<intx::uint256>("1");
-
+*/
 
 typedef unsigned __int128 uint128_t;
 
@@ -148,7 +151,7 @@ void mulmodmont_non_interleaved(intx::uint256* a, intx::uint256* b, intx::uint25
 }
 
 
-void montgomery_multiplication_256(uint64_t* x, uint64_t* y, uint64_t* m, uint64_t* inv, uint64_t* outOffset){
+void montgomery_multiplication_256_secp(uint64_t* x, uint64_t* y, uint64_t* m, uint64_t* inv, uint64_t* outOffset){
   //std::cout << "montgomery_multiplication_256 start." << std::endl;
 
   /*
@@ -243,6 +246,71 @@ void montgomery_multiplication_256(uint64_t* x, uint64_t* y, uint64_t* m, uint64
 
     //std::cout << "montgomery_multiplication_256 end." << std::endl;
 }
+
+
+
+void montgomery_multiplication_256(uint64_t* x, uint64_t* y, uint64_t* m, uint64_t* inv, uint64_t* out){
+  //std::cout << "montgomery_multiplication_256 start." << std::endl;
+
+   uint64_t A[] = {0,0,0,0,0,0,0,0};
+   for (int i=0; i<4; i++){
+     uint64_t ui = (A[i]+x[i]*y[0])*inv[0];
+     uint64_t carry = 0;
+     //uint64_t overcarry = 0;
+     for (int j=0; j<4; j++){
+       uint128_t xiyj = (uint128_t)x[i]*y[j];
+       uint128_t uimj = (uint128_t)ui*m[j];
+       uint128_t partial_sum = xiyj+carry;
+       uint128_t sum = uimj+A[i+j]+partial_sum;
+       A[i+j] = (uint64_t)sum;
+       carry = sum>>64;
+       // if there was overflow in the sum beyond the carry bits
+       if (sum<partial_sum){
+         int k=2;
+         while ( i+j+k<8 && A[i+j+k]==0xffffffffffffffff ){
+           A[i+j+k]=0;
+           k++;
+         }
+         if (i+j+k<8)
+           A[i+j+k]+=1;
+       }
+     }
+     A[i+4]+=carry;
+   }
+
+   // instead of right shift, we just get the correct values
+   out[0] = A[4];
+   out[1] = A[5];
+   out[2] = A[6];
+   out[3] = A[7];
+
+   // final subtraction, first see if necessary
+   // this out <= m check is untested
+   int out_ge_m = 1;
+   for (int i=0;i<4;i++){
+     if (out[4-i-1] < m[4-i-1]){
+       out_ge_m=0;
+       break;
+     }
+     else if (out[4-i-1]>m[4-i-1])
+       break;
+   }
+   if (out_ge_m){
+      // subtract 256 for x>=y, this is algorithm 14.9
+      // this subtraction is untested
+      uint64_t c=0;
+      for (int i=0; i<4;i++){
+        uint64_t temp = out[i]-m[i]-c;
+        if (out[i]>=m[i]+c)
+          c=0;
+        else
+          c=1;
+        out[i]=temp;
+      }
+    }
+    //std::cout << "montgomery_multiplication_256 end." << std::endl;
+}
+
 
 
 #define V(name, str) str,
@@ -2698,16 +2766,23 @@ Result Thread::Run(int num_instructions) {
 
         //*ret_mem = *a + *b;
 
-        const auto add_res = add_with_carry(*a, *b);
+        //*ret_mem = bswap(*a + *b);
+        *ret_mem = bswap(bswap(*a) + bswap(*b));
+        //*ret_mem = bswap(*a) + bswap(*b);
 
-        *ret_mem = std::get<0>(add_res);
+        //*ret_mem = bswap(bswap(*a) - bswap(*b));
+        //const auto add_res = add_with_carry(*a, *b);
 
+        //*ret_mem = std::get<0>(add_res);
+
+        /*
         uint32_t carry = 0;
         if (std::get<1>(add_res) > 0) {
           carry = 1;
         }
 
         Push<uint32_t>(carry);
+        */
 
         break;
       }
@@ -2722,14 +2797,21 @@ Result Thread::Run(int num_instructions) {
         intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[b_offset]));
         intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
 
+        //std::cout << "EwasmSub256.  a: " << intx::to_string(*a) << "  b: " << intx::to_string(*b) << std::endl;
+        //*ret_mem = bswap(*a - *b);
+        //*ret_mem = bswap(*a) - bswap(*b);
+        *ret_mem = bswap(bswap(*a) - bswap(*b));
+
+        //std::cout << "EwasmSub256  return:" << intx::to_string(*ret_mem) << std::endl;
+       
+        /*
         uint32_t carry = 0;
         if (*a < *b) {
           carry = 1;
         }
 
-        *ret_mem = *a - *b;
-
         Push<uint32_t>(carry);
+        */
 
         break;
       }
@@ -2745,13 +2827,40 @@ Result Thread::Run(int num_instructions) {
 
         intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
 
+        //std::cout << "EwasmAddMod.  a: " << intx::to_string(*a) << "  b: " << intx::to_string(*b) << std::endl;
+
         intx::uint512 ret_full = intx::uint512{0,*a} + intx::uint512{0,*b};
 
+        //if (ret_full > intx::uint512{0, wabt::interp::BignumModulus}) {
+        if (ret_full >= wabt::interp::BignumModulus) {
+          ret_full = ret_full - intx::uint512{0, wabt::interp::BignumModulus};
+        }
+
+        //std::cout << "EwasmAddMod  return:" << intx::to_string(ret_full.lo) << std::endl;
+
+        *ret_mem = ret_full.lo;
+
+
+        /*
+        intx::uint512 ret_full = intx::uint512{0,*a} + intx::uint512{0,*b};
+
+        //if (ret_full > intx::uint512{0, wabt::interp::BignumModulus}) {
         if (ret_full > wabt::interp::BignumModulus) {
           ret_full -= intx::uint512{0, wabt::interp::BignumModulus};
         }
 
         *ret_mem = ret_full.lo;
+        */
+
+        // requires newer version of intx
+        //*ret_mem = intx::uint256::addmod(*a, *b);
+
+        /*
+        const auto s = add_with_carry(*a, *b);
+        //*ret_mem = (intx::uint512{s.carry, s.value} % wabt::interp::BignumModulus).lo;
+
+        *ret_mem = (intx::uint512{std::get<1>(s), std::get<0>(s)} % wabt::interp::BignumModulus).lo;
+        */
 
         break;
       }
@@ -2806,7 +2915,7 @@ Result Thread::Run(int num_instructions) {
         if (result >= *mod) {
           result = result - *mod;
         }
-        //*ret = result;
+        // *ret = result;
         *ret = result.lo;
 
         //std::cout << "Ewasmf1mMul using non-interleaved.  return:" << intx::to_string(result) << std::endl;
@@ -2814,7 +2923,6 @@ Result Thread::Run(int num_instructions) {
         break;
       }
       */
-
 
       /*
       case Opcode::Ewasmf1mMul: {

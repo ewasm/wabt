@@ -1347,9 +1347,11 @@ wabt::Result BinaryReaderInterp::OnCallExpr(Index func_index) {
       CHECK_RESULT(EmitOpcode(Opcode::Ewasmf1mToMont));
     } else if (func_name == "bignum_int_mul") {
       CHECK_RESULT(EmitOpcode(Opcode::EwasmMul256));
-    } else if (func_name == "bignum_int_add") {
+    //} else if (func_name == "bignum_int_add") {
+    } else if (func_name == "bignum_add256") {
       CHECK_RESULT(EmitOpcode(Opcode::EwasmAdd256));
-    } else if (func_name == "bignum_int_sub") {
+    //} else if (func_name == "bignum_int_sub") {
+    } else if (func_name == "bignum_sub256") {
       CHECK_RESULT(EmitOpcode(Opcode::EwasmSub256));
     } else if (func_name == "bignum_int_div") {
       CHECK_RESULT(EmitOpcode(Opcode::EwasmDiv256));
