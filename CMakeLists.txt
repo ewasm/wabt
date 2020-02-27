@@ -99,7 +99,7 @@ else ()
     -Wuninitialized
   )
 
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -std=c++14 -Wold-style-cast -O3 -fno-pie -v")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -std=c++14 -std=c++17 -Wold-style-cast -O3 -fno-pie -v")
 
   if (WERROR)
     add_definitions(-Werror)
@@ -291,15 +291,14 @@ if (NOT EMSCRIPTEN)
 
     # Optionally link libm.
     if (EXE_WITH_LIBM AND (COMPILER_IS_CLANG OR COMPILER_IS_GNU))
-      set(EXE_LIBS "${EXE_LIBS};m")
+      set(EXE_LIBS "${EXE_LIBS};m;pthread")
     endif ()
 
     add_executable(${EXE_NAME} ${EXE_SOURCES})
     add_dependencies(everything ${EXE_NAME})
     target_link_libraries(${EXE_NAME} ${EXE_LIBS})
-    #target_link_libraries(${EXE_NAME} /usr/local/lib/libbenchmark.a)
-    target_link_libraries(${EXE_NAME} /usr/local/lib/libbenchmark.a /usr/local/Cellar/gperftools/2.7/lib/libprofiler.a)
-    set_property(TARGET ${EXE_NAME} PROPERTY CXX_STANDARD 11)
+    target_link_libraries(${EXE_NAME} /usr/local/lib/libbenchmark.a)
+    set_property(TARGET ${EXE_NAME} PROPERTY CXX_STANDARD 17)
     set_property(TARGET ${EXE_NAME} PROPERTY CXX_STANDARD_REQUIRED ON)
 
     if (EXE_INSTALL)
