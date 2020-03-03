@@ -111,9 +111,20 @@ uint32_t EwasmLoopCounter = 0;
 Memory* EwasmMem;
 intx::uint256* BignumStack[1000];
 
+
+intx::uint256 BignumOne = intx::from_string<intx::uint256>("1");
+
+// Mask128 = 0xffffffffffffffffffffffffffffffff
+intx::uint128 Mask128 = intx::from_string<intx::uint128>("340282366920938463463374607431768211455");
+
+
 // for bn128
+// modulus = 0x30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd47
+// inv = 0x9ede7d651eca6ac987d20782e4866389
+// r_squared = 0x06d89f71cab8351f47ab1eff0a417ff6b5e71911d44501fbf32cfc5b538afa89
 //intx::uint256 BignumModulus = intx::from_string<intx::uint256>("21888242871839275222246405745257275088696311157297823662689037894645226208583");
 //intx::uint256 BignumInv = intx::from_string<intx::uint256>("211173256549385567650468519415768310665");
+//intx::uint256 BignumRsquared = intx::from_string<intx::uint256>("3096616502983703923843567936837374451735540968419076528771170197431451843209");
 
 
 // for secp256k1
@@ -123,126 +134,134 @@ intx::uint256* BignumStack[1000];
 intx::uint256 BignumModulus = intx::from_string<intx::uint256>("115792089237316195423570985008687907853269984665640564039457584007908834671663");
 intx::uint256 BignumInv = intx::from_string<intx::uint256>("250819822124803770581580479000962479409");
 intx::uint256 BignumRsquared = intx::from_string<intx::uint256>("18446752466076602529");
-intx::uint256 BignumOne = intx::from_string<intx::uint256>("1");
 
 
 typedef unsigned __int128 uint128_t;
 
 
-void mulmodmont_non_interleaved(intx::uint256* a, intx::uint256* b, intx::uint256* mod, intx::uint256* inv, intx::uint256* out) {
+void montgomery_multiplication_256_non_interleaved(uint64_t* x, uint64_t* y, uint64_t* m, uint64_t* inv_ptr, uint64_t* out) {
   using intx::uint512;
 
-  auto mask128 = intx::from_string<intx::uint128>("340282366920938463463374607431768211455");
+  intx::uint256* a = reinterpret_cast<intx::uint256*>(x);
+  intx::uint256* b = reinterpret_cast<intx::uint256*>(y);
+  intx::uint256* mod = reinterpret_cast<intx::uint256*>(m);
+  intx::uint256* inv = reinterpret_cast<intx::uint256*>(inv_ptr);
+  intx::uint256* ret = reinterpret_cast<intx::uint256*>(out);
+
+  //std::cout << "montgomery_multiplication_256 using non-interleaved.  a: " << intx::to_string(*a) << "  b: " << intx::to_string(*b) << std::endl;
+
   auto res1 = uint512{*a} * uint512{*b};
   //auto k0 = ((inv * res1).lo).lo;
-  auto k0 = (uint512{*inv} * res1).lo & mask128;
+  auto k0 = (uint512{*inv} * res1).lo & Mask128;
   auto res2 = ((uint512{k0} * uint512{*mod}) + res1) >> 128;
-  auto k1 = (res2 * uint512{*inv}).lo & mask128;
-  auto result = ((uint512{k1} * uint512{*mod}) + res2) >> 128; // correct version
-  //auto result = (((uint512{k1} * uint512{*mod}) + res2) >> 128).lo; // buggy version
+  auto k1 = (res2 * uint512{*inv}).lo & Mask128;
+  auto result = ((uint512{k1} * uint512{*mod}) + res2) >> 128;
   if (result >= *mod) {
     result = result - *mod;
   }
-  *out = result.lo; // correct version
-  //*out = result; // buggy version
+
+  intx::uint256 result_256 = result.lo;
+  //std::cout << "montgomery_multiplication_256 using non-interleaved.  result: " << intx::to_string(result_256) << std::endl;
+  intx::uint128 result_low_128 = result_256.lo;
+  intx::uint128 result_high_128 = result_256.hi;
+
+  out[0] = result_low_128.lo;
+  out[1] = result_low_128.hi;
+  out[2] = result_high_128.lo;
+  out[3] = result_high_128.hi;
 }
 
 
-void montgomery_multiplication_256(uint64_t* x, uint64_t* y, uint64_t* m, uint64_t* inv, uint64_t* outOffset){
-  //std::cout << "montgomery_multiplication_256 start." << std::endl;
 
-  /*
-  bug on this input:
-  Ewasmf1mMul.
-  a: 93188426574317154152395759482097805786266240869685181120899304007332250698705
-  b: 96980689368068882932099069466058423615108070021982318137542897464605889043217
-  return:69893535275158612601170039474066728529369442559750929171468405475137323342521
-  ----
-  correct result:
-  bignum_f1m_mul a: 93188426574317154152395759482097805786266240869685181120899304007332250698705
-  bignum_f1m_mul b: 96980689368068882932099069466058423615108070021982318137542897464605889043217
-  bignum_f1m_mul result: 69893535275158612601170039474066728529369442559750929171468405475141618310794
-  */
 
-   //uint64_t A[] = {0,0,0,0,0,0,0,0};
-   uint64_t A[] = {0,0,0,0,0,0,0,0,0};
-   for (int i=0; i<4; i++){
-     uint64_t ui = (A[i]+x[i]*y[0])*inv[0];
-     uint64_t carry = 0;
-     //uint64_t overcarry = 0;
-     for (int j=0; j<4; j++){
-       uint128_t xiyj = (uint128_t)x[i]*y[j];
-       uint128_t uimj = (uint128_t)ui*m[j];
-       uint128_t partial_sum = xiyj+carry;
-       uint128_t sum = uimj+A[i+j]+partial_sum;
-       A[i+j] = (uint64_t)sum;
-       carry = sum>>64;
-       // if there was overflow in the sum beyond the carry bits
-       if (sum<partial_sum){
-         int k=2;
-         while ( i+j+k<8 && A[i+j+k]==0xffffffffffffffff ){
-           A[i+j+k]=0;
-           k++;
-         }
-         if (i+j+k<9)
-           A[i+j+k]+=1;
-       }
-     }
-     A[i+4]+=carry;
-   }
 
-   uint64_t out[] = {0,0,0,0,0};
 
-   // instead of right shift, we just get the correct values
-   out[0] = A[4];
-   out[1] = A[5];
-   out[2] = A[6];
-   out[3] = A[7];
-   out[4] = A[8];
+void montgomery_multiplication_256(uint64_t* x, uint64_t* y, uint64_t* m, uint64_t* inv, uint64_t *out){
 
-   // final subtraction, first see if necessary
-   // this out <= m check is untested
-   int out_ge_m = 1;
+  uint64_t A[] = {0,0,0,0,0,0,0,0,0}; // we need 9 64-bit limbs, the 9th limb in case x*y (before subtracting the modulus) is greater than 256 bits
+  for (int i=0; i<4; i++){
+    uint64_t ui = (A[i]+x[i]*y[0])*inv[0];
+    uint64_t carry = 0;
+#pragma unroll
+    for (int j=0; j<4; j++){
+      uint128_t xiyj = (uint128_t)x[i]*y[j];
+      uint128_t uimj = (uint128_t)ui*m[j];
+      uint128_t partial_sum = xiyj+carry;
+      uint128_t sum = uimj+A[i+j]+partial_sum;
+      A[i+j] = (uint64_t)sum;
+      carry = sum>>64;
 
-   /*
-   for (int i=0;i<4;i++){
-     if (out[4-i-1] < m[4-i-1]){
-       out_ge_m=0;
-       break;
-       //continue;
-     }
-     else if (out[4-i-1]>m[4-i-1])
-       break;
-   }
-   */
-
-   if (out[4] > 0) {
-     out_ge_m = 1;
-   } else {
-     out_ge_m = 0;
-   }
-
-   if (out_ge_m){
-      // subtract 256 for x>=y, this is algorithm 14.9
-      // this subtraction is untested
-      uint64_t c=0;
-      for (int i=0; i<5;i++){
-        uint64_t temp = out[i]-m[i]-c;
-        if (out[i]>=m[i])
-          c=0;
-        else
-          c=1;
-        out[i]=temp;
+      if (sum<partial_sum){
+        int k=2;
+        while (i+j+k<8 && A[i+j+k]==(uint64_t)0-1 ){
+          A[i+j+k]=0;
+          k++;
+        }
+        if (i+j+k<9)
+          A[i+j+k]+=1;
       }
+
     }
+    A[i+4]+=carry;
+  }
 
-    outOffset[0] = out[0];
-    outOffset[1] = out[1];
-    outOffset[2] = out[2];
-    outOffset[3] = out[3];
+  // copy A[4:7] to out
+  for (int i=0; i < 256/64; i++)
+    out[i] = A[i + 256/64];
 
-    //std::cout << "montgomery_multiplication_256 end." << std::endl;
+  uint64_t outMulOver256 = A[8];
+
+  int geq = 1; // out >= modulus
+  if (outMulOver256 > 0) {
+    // out is greater than 256 bits
+    geq = 1;
+  } else {
+    // out is 256 bits or less, so compare to modulus
+    for (int i=256/64 - 1;i>=0;i--){
+      if (out[i]<m[i]){
+        // if outMul[i] is less than m[i], then out is less than the modulus and we don't need to subtract.
+        geq = 0;
+        break;
+      } else if (out[i]>m[i]) {
+        // if outMul is greater than m[i], then we need to subtract the modulus from outMul
+        geq = 1;
+        break;
+      }
+      // if this limb is equal for m[i] and outMul[i], go to next limb [i--]
+    }
+  }
+
+  //if out >= modulus, then out = out - modulus
+  if (geq){
+    uint64_t carry=0;
+#pragma unroll
+    for (int i=0; i<4;i++){
+
+      // if a limb subtraction gets a negative, then set the carry bit to 1
+      // 0x0000000000000f000 - 0x0000000000a00000 = -10424320 = 0xffffffffff60f000
+
+      // uint64_t mod_temp = m[i]-carry; // this doesn't work
+      // if m is 0x..ffff and carry is 1, then mod_temp is 0x..fffe, which gets interpreted as [outMul[i] - -2] == [outMul[i] + 2 when subrtracted like [outMul[i] - mod_temp]
+
+      uint64_t out_temp = out[i] - m[i] - carry;
+
+      // if out[i] is larger than m[i], then carry should be 0
+      // if out[i] is less than m[i], then subtracting m[i] will result in a carry.
+      // if m[i] is less than carry, then subtracting m[i]-carry will result in another carry
+      carry = (out[i]<m[i] || m[i]<carry) ? 1:0;
+
+      // write result to return memory offset
+      out[i] = out_temp;
+    }
+    // on i=4, if out[4] is 1, then subtracting the modulus will lead to subtracting the last carry bit from out[4]
+  }
 }
+
+
+
+
+
+
 
 
 #define V(name, str) str,
@@ -2747,7 +2766,7 @@ Result Thread::Run(int num_instructions) {
 
         intx::uint512 ret_full = intx::uint512{0,*a} + intx::uint512{0,*b};
 
-        if (ret_full > wabt::interp::BignumModulus) {
+        if (ret_full >= wabt::interp::BignumModulus) {
           ret_full -= intx::uint512{0, wabt::interp::BignumModulus};
         }
 

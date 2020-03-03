@@ -108,8 +108,6 @@ void AppendScoutFuncs(wabt::interp::Environment* env, wabt::interp::HostModule* 
       // TODO: read prestateRoot from a scout yaml file
       unsigned char prestateRoot[] = {0xb3, 0xc4, 0x18, 0xcb, 0x00, 0xad, 0x7c, 0x90, 0x71, 0x76, 0xbe, 0x86, 0xa5, 0xa2, 0x17, 0x59, 0xb7, 0x4b, 0xd3, 0x82, 0x8e, 0xd6, 0x2a, 0x1e, 0xa2, 0xae, 0x8d, 0xae, 0xa9, 0x8c, 0x5d, 0xa2};
 
-      // printf("eth2_loadPreStateRoot mem_pos: %llu\n", args[0].value.i32);
-
       uint32_t out_offset = args[0].value.i32;
 
       wabt::interp::Memory* mem = env->GetMemory(0);
@@ -130,13 +128,7 @@ void AppendScoutFuncs(wabt::interp::Environment* env, wabt::interp::HostModule* 
       const interp::TypedValues& args,
       interp::TypedValues& results
     ) {
-      
-
-      //printf("eth2_savePostStateRoot mem_pos: %llu\n", args[0].value.i32);
-
       wabt::interp::Memory* mem = env->GetMemory(0);
-
-      //printf("eth2_savePostStateRoot got memory.\n");
 
       unsigned char postStateData[32];
 
@@ -145,18 +137,16 @@ void AppendScoutFuncs(wabt::interp::Environment* env, wabt::interp::HostModule* 
       uint8_t* mem_ptr = reinterpret_cast<uint8_t*>(&mem->data[ret_offset]);
       uint8_t* mem_ptr_end = reinterpret_cast<uint8_t*>(&mem->data[ret_offset+32]);
 
-      //printf("eth2_savePostStateRoot copying memory...\n");
-
       std::copy(mem_ptr, mem_ptr_end, postStateData);
 
-      /// print returned state root
-      char buffer [33];
-      buffer[32] = 0;
-      for(int j = 0; j < 16; j++)
+
+      // print returned state root
+      char buffer [65];
+      buffer[64] = 0;
+      for(int j = 0; j < 32; j++)
         sprintf(&buffer[2*j], "%02X", postStateData[j]);
 
       std::cout << "eth2_savePostStateRoot: " << std::hex << buffer << std::endl;
-
 
       return interp::Result::Ok;
     }
@@ -197,48 +187,15 @@ void AppendScoutFuncs(wabt::interp::Environment* env, wabt::interp::HostModule* 
     ) {
       //printf("eth2_blockDataCopy.\n");
 
-      // eth2_blockDataCopy(outOffset, srcOffset, length) {
-      //wabt::interp::Memory* mem = &env->memories_[0];
       wabt::interp::Memory* mem = env->GetMemory(0);
-
-      //&(mem->data[a_offset])
-
-      // void memorySet(size_t offset, uint8_t value) override { m_wasmMemory->data[offset] = static_cast<char>(value); }
 
       uint32_t out_offset = args[0].value.i32;
       uint32_t src_offset = args[1].value.i32;
       uint32_t copy_len = args[2].value.i32;
 
-      // TODO: out_offset is incrementing by 266 on every call, which is very weird.
-      // should be the same on every call (it is on Scout)
-
-      //printf("eth2_blockDataCopy out_offset: %d\n", args[0].value.i32);
-      //printf("eth2_blockDataCopy src_offset: %d\n", args[1].value.i32);
-      //printf("eth2_blockDataCopy copy_len: %d\n", args[2].value.i32);
-
-
-      /*
-      //&(mem->data[a_offset]);
-      //mem->data[out_offset] = static_cast<char>(value);
-      unsigned char dataToCopy[copy_len];
-      // std::copy(array+1, array+4, b);
-      std::copy(blockData+src_offset, blockData+copy_len, dataToCopy);
-
-
-      // check that dataToCopy is correct...
-      char buffer [33];
-      buffer[32] = 0;
-      for(int j = 0; j < 16; j++)
-        sprintf(&buffer[2*j], "%02X", dataToCopy[j]);
-
-      //std::cout << "eth2_blockDataCopy writing this to mem: " << std::hex << buffer << std::endl;
-      */
-
-
       //std::cout << "eth2_blockDataCopy writing to mem..." << std::endl;
       std::copy(blockData+src_offset, blockData+copy_len, &mem->data[out_offset]);
-      //std::cout << "eth2_blockDataCopy wrote to mem." << std::endl;
-
+ 
       /*
       // inspect written memory
       unsigned char writtenToMem[32];
@@ -255,16 +212,9 @@ void AppendScoutFuncs(wabt::interp::Environment* env, wabt::interp::HostModule* 
       std::cout << "eth2_blockDataCopy memory after writing:" << std::hex << bufferWrittenMem << std::endl;
       */
 
-
-      //env->SetBignumStack(args[0].value.i32);
       return interp::Result::Ok;
     }
   );
 
 
-
-
 }
-
-//void set_i32(uint32_t x) { value.i32 = x; }
-//void set_i64(uint64_t x) { value.i64 = x; }
