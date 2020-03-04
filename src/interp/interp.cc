@@ -122,18 +122,27 @@ intx::uint128 Mask128 = intx::from_string<intx::uint128>("3402823669209384634633
 // modulus = 0x30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd47
 // inv = 0x9ede7d651eca6ac987d20782e4866389
 // r_squared = 0x06d89f71cab8351f47ab1eff0a417ff6b5e71911d44501fbf32cfc5b538afa89
-//intx::uint256 BignumModulus = intx::from_string<intx::uint256>("21888242871839275222246405745257275088696311157297823662689037894645226208583");
-//intx::uint256 BignumInv = intx::from_string<intx::uint256>("211173256549385567650468519415768310665");
-//intx::uint256 BignumRsquared = intx::from_string<intx::uint256>("3096616502983703923843567936837374451735540968419076528771170197431451843209");
+intx::uint256 BignumModulus = intx::from_string<intx::uint256>("21888242871839275222246405745257275088696311157297823662689037894645226208583");
+intx::uint256 BignumInv = intx::from_string<intx::uint256>("211173256549385567650468519415768310665");
+intx::uint256 BignumRsquared = intx::from_string<intx::uint256>("3096616502983703923843567936837374451735540968419076528771170197431451843209");
+
+
+// for bn128 used by daquiri (bn128 Fr constants, as opposed to Fq)
+// modulus = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
+// inv = 0x6586864b4c6911b3c2e1f593efffffff
+// r_squared = 0x0216d0b17f4e44a58c49833d53bb808553fe3ab1e35c59e31bb8e645ae216da7
+intx::uint256 BignumModulusFr = intx::from_string<intx::uint256>("21888242871839275222246405745257275088548364400416034343698204186575808495617");
+intx::uint256 BignumInvFr = intx::from_string<intx::uint256>("134950519161967129512891662437158223871");
+intx::uint256 BignumRsquaredFr = intx::from_string<intx::uint256>("944936681149208446651664254269745548490766851729442924617792859073125903783");
 
 
 // for secp256k1
 // modulus = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f
 // inv = 0xbcb223fedc24a059d838091dd2253531
 // r_squared = 0x1000007a2000e90a1
-intx::uint256 BignumModulus = intx::from_string<intx::uint256>("115792089237316195423570985008687907853269984665640564039457584007908834671663");
-intx::uint256 BignumInv = intx::from_string<intx::uint256>("250819822124803770581580479000962479409");
-intx::uint256 BignumRsquared = intx::from_string<intx::uint256>("18446752466076602529");
+//intx::uint256 BignumModulus = intx::from_string<intx::uint256>("115792089237316195423570985008687907853269984665640564039457584007908834671663");
+//intx::uint256 BignumInv = intx::from_string<intx::uint256>("250819822124803770581580479000962479409");
+//intx::uint256 BignumRsquared = intx::from_string<intx::uint256>("18446752466076602529");
 
 
 typedef unsigned __int128 uint128_t;
@@ -2797,83 +2806,6 @@ Result Thread::Run(int num_instructions) {
       }
 
 
-      /*
-      case Opcode::Ewasmf1mMul: {
-        uint32_t ret_offset = Pop<uint32_t>();
-        uint32_t b_offset = Pop<uint32_t>();
-        uint32_t a_offset = Pop<uint32_t>();
-        using intx::uint512;
-
-        Memory* mem = &env_->memories_[0];
-        intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[a_offset]));
-        intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[b_offset]));
-
-        //std::cout << "Ewasmf1mMul using non-interleaved.  a: " << intx::to_string(*a) << "  b: " << intx::to_string(*b) << std::endl;
-
-        intx::uint256* mod = reinterpret_cast<intx::uint256*>(&wabt::interp::BignumModulus);
-        intx::uint256* inv = reinterpret_cast<intx::uint256*>(&wabt::interp::BignumInv);
-        intx::uint256* ret = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
-        auto mask = intx::from_string<intx::uint128>("340282366920938463463374607431768211455");
-        auto res1 = uint512{*a} * uint512{*b};
-        //auto k0 = ((inv * res1).lo).lo;
-        auto k0 = (uint512{*inv} * res1).lo & mask;
-        auto res2 = ((uint512{k0} * uint512{*mod}) + res1) >> 128;
-        auto k1 = (res2 * uint512{*inv}).lo & mask;
-        //auto result = (((uint512{k1} * uint512{*mod}) + res2) >> 128).lo;
-        auto result = ((uint512{k1} * uint512{*mod}) + res2) >> 128;
-        // auto ret = ((uint512{k1} * uint512{mod}) + res2).high ??
-        if (result >= *mod) {
-          result = result - *mod;
-        }
-        //*ret = result;
-        *ret = result.lo;
-
-        //std::cout << "Ewasmf1mMul using non-interleaved.  return:" << intx::to_string(result) << std::endl;
-
-        break;
-      }
-      */
-
-
-      /*
-      case Opcode::Ewasmf1mMul: {
-        uint32_t ret_offset = Pop<uint32_t>();
-        uint32_t b_offset = Pop<uint32_t>();
-        uint32_t a_offset = Pop<uint32_t>();
-       //using intx::uint512;
-
-        Memory* mem = &env_->memories_[0];
-        intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[a_offset]));
-        intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[b_offset]));
-
-        //std::cout << "Ewasmf1mMul using non-interleaved.  a: " << intx::to_string(*a) << "  b: " << intx::to_string(*b) << std::endl;
-
-        intx::uint256* mod = reinterpret_cast<intx::uint256*>(&wabt::interp::BignumModulus);
-        intx::uint256* inv = reinterpret_cast<intx::uint256*>(&wabt::interp::BignumInv);
-        intx::uint256* ret = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
-
-        mulmodmont_non_interleaved(a, b, mod, inv, ret);
-
-        break;
-      }
-
-      case Opcode::Ewasmf1mSquare: {
-        uint32_t ret_offset = Pop<uint32_t>();
-        uint32_t a_offset = Pop<uint32_t>();
-
-        Memory* mem = &env_->memories_[0];
-        intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[a_offset]));
-
-        intx::uint256* mod = reinterpret_cast<intx::uint256*>(&wabt::interp::BignumModulus);
-        intx::uint256* inv = reinterpret_cast<intx::uint256*>(&wabt::interp::BignumInv);
-        intx::uint256* ret = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
-
-        mulmodmont_non_interleaved(a, a, mod, inv, ret);
-
-        break;
-      }
-      */
-
 
       case Opcode::Ewasmf1mMul: {
         uint32_t ret_offset = Pop<uint32_t>();
@@ -2919,8 +2851,6 @@ Result Thread::Run(int num_instructions) {
         break;
       }
 
-
-
       case Opcode::Ewasmf1mFromMont: {
         uint32_t ret_offset = Pop<uint32_t>();
         uint32_t a_offset = Pop<uint32_t>();
@@ -2956,6 +2886,128 @@ Result Thread::Run(int num_instructions) {
 
         break;
       }
+
+
+
+      /**** Fr bignum funcs ****/
+      
+      case Opcode::EwasmFrmMul: {
+        uint32_t ret_offset = Pop<uint32_t>();
+        uint32_t b_offset = Pop<uint32_t>();
+        uint32_t a_offset = Pop<uint32_t>();
+
+        Memory* mem = &env_->memories_[0];
+        uint64_t* a = reinterpret_cast<uint64_t*>(&(mem->data[a_offset]));
+        uint64_t* b = reinterpret_cast<uint64_t*>(&(mem->data[b_offset]));
+
+        uint64_t* mod = reinterpret_cast<uint64_t*>(&wabt::interp::BignumModulusFr);
+        uint64_t* inv = reinterpret_cast<uint64_t*>(&wabt::interp::BignumInvFr);
+
+        uint64_t* ret = reinterpret_cast<uint64_t*>(&(mem->data[ret_offset]));
+
+        montgomery_multiplication_256(a, b, mod, inv, ret);
+
+        break;
+      }
+
+      case Opcode::EwasmFrmSquare: {
+        uint32_t ret_offset = Pop<uint32_t>();
+        uint32_t a_offset = Pop<uint32_t>();
+
+        Memory* mem = &env_->memories_[0];
+        uint64_t* a = reinterpret_cast<uint64_t*>(&(mem->data[a_offset]));
+
+        uint64_t* mod = reinterpret_cast<uint64_t*>(&wabt::interp::BignumModulusFr);
+        uint64_t* inv = reinterpret_cast<uint64_t*>(&wabt::interp::BignumInvFr);
+
+        uint64_t* ret = reinterpret_cast<uint64_t*>(&(mem->data[ret_offset]));
+
+        montgomery_multiplication_256(a, a, mod, inv, ret);
+
+        break;
+      }
+
+      case Opcode::EwasmFrmFromMont: {
+        uint32_t ret_offset = Pop<uint32_t>();
+        uint32_t a_offset = Pop<uint32_t>();
+
+        Memory* mem = &env_->memories_[0];
+        uint64_t* a = reinterpret_cast<uint64_t*>(&(mem->data[a_offset]));
+        uint64_t* b = reinterpret_cast<uint64_t*>(&wabt::interp::BignumOne);
+
+        uint64_t* mod = reinterpret_cast<uint64_t*>(&wabt::interp::BignumModulusFr);
+        uint64_t* inv = reinterpret_cast<uint64_t*>(&wabt::interp::BignumInvFr);
+
+        uint64_t* ret = reinterpret_cast<uint64_t*>(&(mem->data[ret_offset]));
+
+        montgomery_multiplication_256(a, b, mod, inv, ret);
+
+        break;
+      }
+
+      case Opcode::EwasmFrmToMont: {
+        uint32_t ret_offset = Pop<uint32_t>();
+        uint32_t a_offset = Pop<uint32_t>();
+
+        Memory* mem = &env_->memories_[0];
+        uint64_t* a = reinterpret_cast<uint64_t*>(&(mem->data[a_offset]));
+        uint64_t* b = reinterpret_cast<uint64_t*>(&wabt::interp::BignumRsquaredFr);
+
+        uint64_t* mod = reinterpret_cast<uint64_t*>(&wabt::interp::BignumModulusFr);
+        uint64_t* inv = reinterpret_cast<uint64_t*>(&wabt::interp::BignumInvFr);
+
+        uint64_t* ret = reinterpret_cast<uint64_t*>(&(mem->data[ret_offset]));
+
+        montgomery_multiplication_256(a, b, mod, inv, ret);
+
+        break;
+      }
+
+      case Opcode::EwasmFrmAdd: {
+        uint32_t ret_offset = Pop<uint32_t>();
+        uint32_t b_offset = Pop<uint32_t>();
+        uint32_t a_offset = Pop<uint32_t>();
+
+        Memory* mem = &env_->memories_[0];
+        intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[a_offset]));
+        intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[b_offset]));
+
+        intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
+
+        intx::uint512 ret_full = intx::uint512{0,*a} + intx::uint512{0,*b};
+
+        if (ret_full >= wabt::interp::BignumModulusFr) {
+          ret_full -= intx::uint512{0, wabt::interp::BignumModulusFr};
+        }
+
+        *ret_mem = ret_full.lo;
+
+        break;
+      }
+
+      case Opcode::EwasmFrmSub: {
+        uint32_t ret_offset = Pop<uint32_t>();
+        uint32_t b_offset = Pop<uint32_t>();
+        uint32_t a_offset = Pop<uint32_t>();
+
+        Memory* mem = &env_->memories_[0];
+        intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[a_offset]));
+        intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[b_offset]));
+
+        intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
+
+        if (*a < *b) {
+          *ret_mem = (*a + wabt::interp::BignumModulusFr) - *b;
+        } else {
+          *ret_mem = *a - *b;
+        }
+
+        break;
+      }
+
+
+
+
 
 
       case Opcode::I64DivS:
