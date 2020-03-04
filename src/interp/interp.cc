@@ -110,9 +110,9 @@ intx::uint128 Mask128 = intx::from_string<intx::uint128>("3402823669209384634633
 // modulus = 0x30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd47
 // inv = 0x9ede7d651eca6ac987d20782e4866389
 // r_squared = 0x06d89f71cab8351f47ab1eff0a417ff6b5e71911d44501fbf32cfc5b538afa89
-intx::uint256 BignumModulus = intx::from_string<intx::uint256>("21888242871839275222246405745257275088696311157297823662689037894645226208583");
-intx::uint256 BignumInv = intx::from_string<intx::uint256>("211173256549385567650468519415768310665");
-intx::uint256 BignumRsquared = intx::from_string<intx::uint256>("3096616502983703923843567936837374451735540968419076528771170197431451843209");
+//intx::uint256 BignumModulus = intx::from_string<intx::uint256>("21888242871839275222246405745257275088696311157297823662689037894645226208583");
+//intx::uint256 BignumInv = intx::from_string<intx::uint256>("211173256549385567650468519415768310665");
+//intx::uint256 BignumRsquared = intx::from_string<intx::uint256>("3096616502983703923843567936837374451735540968419076528771170197431451843209");
 
 
 // for bn128 used by daquiri (bn128 Fr constants, as opposed to Fq)
@@ -128,9 +128,9 @@ intx::uint256 BignumRsquaredFr = intx::from_string<intx::uint256>("9449366811492
 // modulus = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f
 // inv = 0xbcb223fedc24a059d838091dd2253531
 // r_squared = 0x1000007a2000e90a1
-//intx::uint256 BignumModulus = intx::from_string<intx::uint256>("115792089237316195423570985008687907853269984665640564039457584007908834671663");
-//intx::uint256 BignumInv = intx::from_string<intx::uint256>("250819822124803770581580479000962479409");
-//intx::uint256 BignumRsquared = intx::from_string<intx::uint256>("18446752466076602529");
+intx::uint256 BignumModulus = intx::from_string<intx::uint256>("115792089237316195423570985008687907853269984665640564039457584007908834671663");
+intx::uint256 BignumInv = intx::from_string<intx::uint256>("250819822124803770581580479000962479409");
+intx::uint256 BignumRsquared = intx::from_string<intx::uint256>("18446752466076602529");
 
 
 
