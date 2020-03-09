@@ -266,7 +266,7 @@ static wabt::Result InstantiateModule(const char* module_filename) {
   Errors errors;
   //DefinedModule* module = nullptr;
 
-  const auto parseStartTime = chrono_clock::now();
+  //const auto parseStartTime = chrono_clock::now();
 
   result = ReadModule(module_filename, &env, &errors, &module);
   FormatErrorsToFile(errors, Location::Type::Binary);
@@ -368,6 +368,9 @@ namespace
 
 int main(int argc, char** argv)
 {
+    constexpr auto to_us = [](chrono_clock::duration d) {
+      return std::chrono::duration_cast<std::chrono::microseconds>(d).count();
+    };
     // Initialize is a benchmark.h function?
     Initialize(&argc, argv);
 
@@ -375,13 +378,21 @@ int main(int argc, char** argv)
     s_stdout_stream = FileStream::CreateStdout();
     ParseOptions(argc, argv);
 
+    const auto parseStartTime = chrono_clock::now();
     wabt::Result result = InstantiateModule(s_infile);
     if (Succeeded(result)) {
+      const auto now = chrono_clock::now();
+      const auto parseDuration = now - parseStartTime;
+      const auto execStartTime = now;
       printf("parse succeeded..\n");
       // test execution before running benchmark..
       result = ExecuteModule();
-      printf("execution finished...\n");
       if (Succeeded(result)) {
+        const auto execFinishTime = chrono_clock::now();
+        const auto execDuration = execFinishTime - execStartTime;
+        std::cout << "parse time: " << std::dec << to_us(parseDuration) << "us\n";
+        std::cout << "exec time: " << std::dec << to_us(execDuration) << "us\n";
+        printf("execution succeeded...\n");
         // TODO: do we need to reset environment/memory before running benchmark?
         // or reset on every loop?
         printf("register benchmark...\n");
