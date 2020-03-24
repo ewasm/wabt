@@ -703,6 +703,20 @@ Result BinaryReader::ReadFunctionBody(Offset end_offset) {
   state_.peek_offset = state_.offset;
   bool seen_end_opcode_peek = false;
 
+  // handle special case where function body is only 1 instruction
+  Offset body_size = end_offset - state_.offset;
+  if (body_size == 1) {
+    //printf("ReadFunctionBody special case size 1.\n");
+    Opcode unmatched_opcode_1;
+    CHECK_RESULT(ReadOpcode(&unmatched_opcode_1, "opcode"));
+    CALLBACK(OnOpcode, unmatched_opcode_1);
+    ERROR_UNLESS_OPCODE_ENABLED(unmatched_opcode_1);
+    CHECK_RESULT(ProcessOpcodeInFuncBody(unmatched_opcode_1, &seen_end_opcode, end_offset));
+
+    ERROR_UNLESS(seen_end_opcode, "function body must end with END opcode");
+    return Result::Ok;
+  }
+
   // should Peek twice before starting while loop.
 
   Opcode peek_opcode_one;
@@ -3356,7 +3370,6 @@ Result BinaryReader::ReadFunctionSection(Offset section_size) {
 }
 
 Result BinaryReader::ReadTableSection(Offset section_size) {
-  const auto parseStartTime = chrono_clock::now();
   CALLBACK(BeginTableSection, section_size);
   CHECK_RESULT(ReadCount(&num_tables_, "table count"));
   if (!options_.features.reference_types_enabled()) {
@@ -3372,9 +3385,6 @@ Result BinaryReader::ReadTableSection(Offset section_size) {
     CALLBACK(OnTable, table_index, elem_type, &elem_limits);
   }
   CALLBACK0(EndTableSection);
-  const auto now = chrono_clock::now();
-  const auto parseDuration = now - parseStartTime;
-  std::cout << "parse time: " << std::dec << to_us(parseDuration) << "us\n";
   return Result::Ok;
 }
 
