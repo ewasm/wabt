@@ -246,24 +246,9 @@ WABT_OPCODE(___,  ___,  ___,  ___,  0,  0,    0xe4, InterpDropKeep, "drop_keep")
  * each opcode defined here gets its IR code from the `wabt::Opcode` enum
  * defined in src/opcode.h.
  */
-WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmInt256Add, "")
-WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmInt256Sub, "")
-WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmInt256Mul, "")
-WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmInt256Div, "")
-
-WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmF1mAdd, "")
-WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmF1mSub, "")
-WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmF1mMul, "")
-WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmF1mSquare, "")
-WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmF1mFromMont, "")
-WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmF1mToMont, "")
-
-WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmFrmAdd, "")
-WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmFrmSub, "")
-WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmFrmMul, "")
-WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmFrmSquare, "")
-WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmFrmFromMont, "")
-WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmFrmToMont, "")
+WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmAddMod, "")
+WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmSubMod, "")
+WABT_OPCODE(___,  I32,  I32,  I32,  0,  0,    0xe5, EwasmMulModMont, "")
 
 
 /* Saturating float-to-int opcodes (--enable-saturating-float-to-int) */

@@ -99,8 +99,10 @@ void WriteTypedValues(Stream* stream, const TypedValues& values) {
 
 
 /***** Bignum constants are used in the bignum functions ****/
+/***** For rollup.rs, the constants are passed in as arguments, so they aren't needed ****/
+/***** For websnark, the constants are hard-coded, so they are needed. ****/
 
-intx::uint256 BignumOne = intx::from_string<intx::uint256>("1");
+//intx::uint256 BignumOne = intx::from_string<intx::uint256>("1");
 
 // Mask128 = 0xffffffffffffffffffffffffffffffff
 intx::uint128 Mask128 = intx::from_string<intx::uint128>("340282366920938463463374607431768211455");
@@ -110,18 +112,18 @@ intx::uint128 Mask128 = intx::from_string<intx::uint128>("3402823669209384634633
 // modulus = 0x30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd47
 // inv = 0x9ede7d651eca6ac987d20782e4866389
 // r_squared = 0x06d89f71cab8351f47ab1eff0a417ff6b5e71911d44501fbf32cfc5b538afa89
-intx::uint256 BignumModulus = intx::from_string<intx::uint256>("21888242871839275222246405745257275088696311157297823662689037894645226208583");
-intx::uint256 BignumInv = intx::from_string<intx::uint256>("211173256549385567650468519415768310665");
-intx::uint256 BignumRsquared = intx::from_string<intx::uint256>("3096616502983703923843567936837374451735540968419076528771170197431451843209");
+//intx::uint256 BignumModulus = intx::from_string<intx::uint256>("21888242871839275222246405745257275088696311157297823662689037894645226208583");
+//intx::uint256 BignumInv = intx::from_string<intx::uint256>("211173256549385567650468519415768310665");
+//intx::uint256 BignumRsquared = intx::from_string<intx::uint256>("3096616502983703923843567936837374451735540968419076528771170197431451843209");
 
 
 // for bn128 used by daquiri (bn128 Fr constants, as opposed to Fq)
 // modulus = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
 // inv = 0x6586864b4c6911b3c2e1f593efffffff
 // r_squared = 0x0216d0b17f4e44a58c49833d53bb808553fe3ab1e35c59e31bb8e645ae216da7
-intx::uint256 BignumModulusFr = intx::from_string<intx::uint256>("21888242871839275222246405745257275088548364400416034343698204186575808495617");
-intx::uint256 BignumInvFr = intx::from_string<intx::uint256>("134950519161967129512891662437158223871");
-intx::uint256 BignumRsquaredFr = intx::from_string<intx::uint256>("944936681149208446651664254269745548490766851729442924617792859073125903783");
+//intx::uint256 BignumModulusFr = intx::from_string<intx::uint256>("21888242871839275222246405745257275088548364400416034343698204186575808495617");
+//intx::uint256 BignumInvFr = intx::from_string<intx::uint256>("134950519161967129512891662437158223871");
+//intx::uint256 BignumRsquaredFr = intx::from_string<intx::uint256>("944936681149208446651664254269745548490766851729442924617792859073125903783");
 
 
 // for secp256k1
@@ -2190,337 +2192,77 @@ Result Thread::Run(int num_instructions) {
         break;
 
 
-      /**** Int256 bignum funcs. These replicate websnark's int_* functions ****/
+      /****  Bignum functions for rollup.rs *****/
 
-      case Opcode::EwasmInt256Mul: {
+      case Opcode::EwasmAddMod: {
         uint32_t ret_offset = Pop<uint32_t>();
+        uint32_t mod_offset = Pop<uint32_t>();
         uint32_t b_offset = Pop<uint32_t>();
         uint32_t a_offset = Pop<uint32_t>();
 
         Memory* mem = &env_->memories_[0];
         intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[a_offset]));
         intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[b_offset]));
-        intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
+        intx::uint256* mod = reinterpret_cast<intx::uint256*>(&(mem->data[mod_offset]));
+        intx::uint256* ret = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
 
-        *ret_mem = *a * *b;
+        *ret = *a + *b;
 
-        break;
-      }
-
-      case Opcode::EwasmInt256Div: {
-        uint32_t ret_offset = Pop<uint32_t>(); // ret is the remainder
-        uint32_t c_offset = Pop<uint32_t>(); // c param is the quotient
-        uint32_t b_offset = Pop<uint32_t>();
-        uint32_t a_offset = Pop<uint32_t>();
-
-        Memory* mem = &env_->memories_[0];
-        intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[a_offset]));
-        intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[b_offset]));
-        intx::uint256* ret_remainder_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
-        intx::uint256* ret_quotient_mem = reinterpret_cast<intx::uint256*>(&(mem->data[c_offset]));
-
-        //*ret_remainder_mem = *a % *b;
-        //*ret_quotient_mem = *a / *b;
-        const auto div_res = udivrem(*a, *b);
-        *ret_quotient_mem = div_res.quot;
-        *ret_remainder_mem = div_res.rem;
-
-        break;
-      }
-
-      case Opcode::EwasmInt256Add: {
-        uint32_t ret_offset = Pop<uint32_t>();
-        uint32_t b_offset = Pop<uint32_t>();
-        uint32_t a_offset = Pop<uint32_t>();
-
-        Memory* mem = &env_->memories_[0];
-        intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[a_offset]));
-        intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[b_offset]));
-        intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
-
-        //*ret_mem = *a + *b;
-
-        const auto add_res = add_with_carry(*a, *b);
-
-        *ret_mem = std::get<0>(add_res);
-
-        uint32_t carry = 0;
-        if (std::get<1>(add_res) > 0) {
-          carry = 1;
+        if (*ret >= *mod) {
+          *ret = *ret - *mod;
         }
 
-        Push<uint32_t>(carry);
+        //std::cout << "EwasmAddMod.  a: " << intx::to_string(*a) << "  b: " << intx::to_string(*b) << "  ret:" << intx::to_string(*ret) << std::endl;
 
         break;
       }
 
-      case Opcode::EwasmInt256Sub: {
+
+      case Opcode::EwasmSubMod: {
         uint32_t ret_offset = Pop<uint32_t>();
+        uint32_t mod_offset = Pop<uint32_t>();
         uint32_t b_offset = Pop<uint32_t>();
         uint32_t a_offset = Pop<uint32_t>();
 
         Memory* mem = &env_->memories_[0];
         intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[a_offset]));
         intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[b_offset]));
-        intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
-
-        uint32_t carry = 0;
-        if (*a < *b) {
-          carry = 1;
-        }
-
-        *ret_mem = *a - *b;
-
-        Push<uint32_t>(carry);
-
-        break;
-      }
-
-
-      /**** F1m bignum funcs. These replicate websnark's F1m_* functions (m stands for montgomery, and F1 refers using the base field `q` as the modulus) ****/
-
-      case Opcode::EwasmF1mAdd: {
-        uint32_t ret_offset = Pop<uint32_t>();
-        uint32_t b_offset = Pop<uint32_t>();
-        uint32_t a_offset = Pop<uint32_t>();
-
-        Memory* mem = &env_->memories_[0];
-        intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[a_offset]));
-        intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[b_offset]));
-
-        intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
-
-        intx::uint512 ret_full = intx::uint512{0,*a} + intx::uint512{0,*b};
-
-        if (ret_full >= wabt::interp::BignumModulus) {
-          ret_full -= intx::uint512{0, wabt::interp::BignumModulus};
-        }
-
-        *ret_mem = ret_full.lo;
-
-        break;
-      }
-
-      case Opcode::EwasmF1mSub: {
-        uint32_t ret_offset = Pop<uint32_t>();
-        uint32_t b_offset = Pop<uint32_t>();
-        uint32_t a_offset = Pop<uint32_t>();
-
-
-        Memory* mem = &env_->memories_[0];
-        intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[a_offset]));
-        intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[b_offset]));
-
-        intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
+        intx::uint256* mod = reinterpret_cast<intx::uint256*>(&(mem->data[mod_offset]));
+        intx::uint256* ret = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
 
         if (*a < *b) {
-          *ret_mem = (*a + wabt::interp::BignumModulus) - *b;
-        } else {
-          *ret_mem = *a - *b;
+          *a = *a + *mod;
         }
+
+        *ret = *a - *b;
+
+        //std::cout << "EwasmSubMod.  a: " << intx::to_string(*a) << "  b: " << intx::to_string(*b) << "  ret:" << intx::to_string(*ret) << std::endl;
+
+        //std::cout << "EwasmSubMod." << std::endl;
 
         break;
       }
 
-      case Opcode::EwasmF1mMul: {
+
+      case Opcode::EwasmMulModMont: {
+
         uint32_t ret_offset = Pop<uint32_t>();
+        uint32_t inv_offset = Pop<uint32_t>();
+        uint32_t mod_offset = Pop<uint32_t>();
         uint32_t b_offset = Pop<uint32_t>();
         uint32_t a_offset = Pop<uint32_t>();
 
         Memory* mem = &env_->memories_[0];
         uint64_t* a = reinterpret_cast<uint64_t*>(&(mem->data[a_offset]));
         uint64_t* b = reinterpret_cast<uint64_t*>(&(mem->data[b_offset]));
-
-        uint64_t* mod = reinterpret_cast<uint64_t*>(&wabt::interp::BignumModulus);
-        uint64_t* inv = reinterpret_cast<uint64_t*>(&wabt::interp::BignumInv);
-
-        uint64_t* ret = reinterpret_cast<uint64_t*>(&(mem->data[ret_offset]));
-
-        //intx::uint256* a_intx = reinterpret_cast<intx::uint256*>(&(mem->data[a_offset]));
-        //intx::uint256* b_intx = reinterpret_cast<intx::uint256*>(&(mem->data[b_offset]));
-
-        //std::cout << "Ewasmf1mMul.  a: " << intx::to_string(*a_intx) << "  b: " << intx::to_string(*b_intx) << std::endl;
-
-        montgomery_multiplication_256(a, b, mod, inv, ret);
-
-        //intx::uint256* ret_intx = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
-        //std::cout << "Ewasmf1mMul.  return:" << intx::to_string(*ret_intx) << std::endl;
-
-        break;
-      }
-
-      case Opcode::EwasmF1mSquare: {
-        uint32_t ret_offset = Pop<uint32_t>();
-        uint32_t a_offset = Pop<uint32_t>();
-
-        Memory* mem = &env_->memories_[0];
-        uint64_t* a = reinterpret_cast<uint64_t*>(&(mem->data[a_offset]));
-
-        uint64_t* mod = reinterpret_cast<uint64_t*>(&wabt::interp::BignumModulus);
-        uint64_t* inv = reinterpret_cast<uint64_t*>(&wabt::interp::BignumInv);
-
-        uint64_t* ret = reinterpret_cast<uint64_t*>(&(mem->data[ret_offset]));
-
-        montgomery_multiplication_256(a, a, mod, inv, ret);
-
-        break;
-      }
-
-      case Opcode::EwasmF1mFromMont: {
-        uint32_t ret_offset = Pop<uint32_t>();
-        uint32_t a_offset = Pop<uint32_t>();
-
-        Memory* mem = &env_->memories_[0];
-        uint64_t* a = reinterpret_cast<uint64_t*>(&(mem->data[a_offset]));
-        uint64_t* b = reinterpret_cast<uint64_t*>(&wabt::interp::BignumOne);
-
-        uint64_t* mod = reinterpret_cast<uint64_t*>(&wabt::interp::BignumModulus);
-        uint64_t* inv = reinterpret_cast<uint64_t*>(&wabt::interp::BignumInv);
-
+        uint64_t* mod = reinterpret_cast<uint64_t*>(&(mem->data[mod_offset]));
+        uint64_t* inv = reinterpret_cast<uint64_t*>(&(mem->data[inv_offset]));
         uint64_t* ret = reinterpret_cast<uint64_t*>(&(mem->data[ret_offset]));
 
         montgomery_multiplication_256(a, b, mod, inv, ret);
 
         break;
       }
-
-      case Opcode::EwasmF1mToMont: {
-        uint32_t ret_offset = Pop<uint32_t>();
-        uint32_t a_offset = Pop<uint32_t>();
-
-        Memory* mem = &env_->memories_[0];
-        uint64_t* a = reinterpret_cast<uint64_t*>(&(mem->data[a_offset]));
-        uint64_t* b = reinterpret_cast<uint64_t*>(&wabt::interp::BignumRsquared);
-
-        uint64_t* mod = reinterpret_cast<uint64_t*>(&wabt::interp::BignumModulus);
-        uint64_t* inv = reinterpret_cast<uint64_t*>(&wabt::interp::BignumInv);
-
-        uint64_t* ret = reinterpret_cast<uint64_t*>(&(mem->data[ret_offset]));
-
-        montgomery_multiplication_256(a, b, mod, inv, ret);
-
-        break;
-      }
-
-
-
-      /**** Frm bignum funcs. These replicate websnark's Frm_* functions (`m` stands for montgomery, `r` refers to using the order of the curve group as the modulus rather than the base field) ****/
-
-      case Opcode::EwasmFrmMul: {
-        uint32_t ret_offset = Pop<uint32_t>();
-        uint32_t b_offset = Pop<uint32_t>();
-        uint32_t a_offset = Pop<uint32_t>();
-
-        Memory* mem = &env_->memories_[0];
-        uint64_t* a = reinterpret_cast<uint64_t*>(&(mem->data[a_offset]));
-        uint64_t* b = reinterpret_cast<uint64_t*>(&(mem->data[b_offset]));
-
-        uint64_t* mod = reinterpret_cast<uint64_t*>(&wabt::interp::BignumModulusFr);
-        uint64_t* inv = reinterpret_cast<uint64_t*>(&wabt::interp::BignumInvFr);
-
-        uint64_t* ret = reinterpret_cast<uint64_t*>(&(mem->data[ret_offset]));
-
-        montgomery_multiplication_256(a, b, mod, inv, ret);
-
-        break;
-      }
-
-      case Opcode::EwasmFrmSquare: {
-        uint32_t ret_offset = Pop<uint32_t>();
-        uint32_t a_offset = Pop<uint32_t>();
-
-        Memory* mem = &env_->memories_[0];
-        uint64_t* a = reinterpret_cast<uint64_t*>(&(mem->data[a_offset]));
-
-        uint64_t* mod = reinterpret_cast<uint64_t*>(&wabt::interp::BignumModulusFr);
-        uint64_t* inv = reinterpret_cast<uint64_t*>(&wabt::interp::BignumInvFr);
-
-        uint64_t* ret = reinterpret_cast<uint64_t*>(&(mem->data[ret_offset]));
-
-        montgomery_multiplication_256(a, a, mod, inv, ret);
-
-        break;
-      }
-
-      case Opcode::EwasmFrmFromMont: {
-        uint32_t ret_offset = Pop<uint32_t>();
-        uint32_t a_offset = Pop<uint32_t>();
-
-        Memory* mem = &env_->memories_[0];
-        uint64_t* a = reinterpret_cast<uint64_t*>(&(mem->data[a_offset]));
-        uint64_t* b = reinterpret_cast<uint64_t*>(&wabt::interp::BignumOne);
-
-        uint64_t* mod = reinterpret_cast<uint64_t*>(&wabt::interp::BignumModulusFr);
-        uint64_t* inv = reinterpret_cast<uint64_t*>(&wabt::interp::BignumInvFr);
-
-        uint64_t* ret = reinterpret_cast<uint64_t*>(&(mem->data[ret_offset]));
-
-        montgomery_multiplication_256(a, b, mod, inv, ret);
-
-        break;
-      }
-
-      case Opcode::EwasmFrmToMont: {
-        uint32_t ret_offset = Pop<uint32_t>();
-        uint32_t a_offset = Pop<uint32_t>();
-
-        Memory* mem = &env_->memories_[0];
-        uint64_t* a = reinterpret_cast<uint64_t*>(&(mem->data[a_offset]));
-        uint64_t* b = reinterpret_cast<uint64_t*>(&wabt::interp::BignumRsquaredFr);
-
-        uint64_t* mod = reinterpret_cast<uint64_t*>(&wabt::interp::BignumModulusFr);
-        uint64_t* inv = reinterpret_cast<uint64_t*>(&wabt::interp::BignumInvFr);
-
-        uint64_t* ret = reinterpret_cast<uint64_t*>(&(mem->data[ret_offset]));
-
-        montgomery_multiplication_256(a, b, mod, inv, ret);
-
-        break;
-      }
-
-      case Opcode::EwasmFrmAdd: {
-        uint32_t ret_offset = Pop<uint32_t>();
-        uint32_t b_offset = Pop<uint32_t>();
-        uint32_t a_offset = Pop<uint32_t>();
-
-        Memory* mem = &env_->memories_[0];
-        intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[a_offset]));
-        intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[b_offset]));
-
-        intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
-
-        intx::uint512 ret_full = intx::uint512{0,*a} + intx::uint512{0,*b};
-
-        if (ret_full >= wabt::interp::BignumModulusFr) {
-          ret_full -= intx::uint512{0, wabt::interp::BignumModulusFr};
-        }
-
-        *ret_mem = ret_full.lo;
-
-        break;
-      }
-
-      case Opcode::EwasmFrmSub: {
-        uint32_t ret_offset = Pop<uint32_t>();
-        uint32_t b_offset = Pop<uint32_t>();
-        uint32_t a_offset = Pop<uint32_t>();
-
-        Memory* mem = &env_->memories_[0];
-        intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[a_offset]));
-        intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[b_offset]));
-
-        intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
-
-        if (*a < *b) {
-          *ret_mem = (*a + wabt::interp::BignumModulusFr) - *b;
-        } else {
-          *ret_mem = *a - *b;
-        }
-
-        break;
-      }
-
-
 
 
 
