@@ -2731,7 +2731,8 @@ Result Thread::Run(int num_instructions) {
         uint64_t* inv = reinterpret_cast<uint64_t*>(&(mem->data[inv_offset]));
         uint64_t* ret = reinterpret_cast<uint64_t*>(&(mem->data[ret_offset]));
 
-        montgomery_multiplication_256(a, b, mod, inv, ret);
+        //montgomery_multiplication_256(a, b, mod, inv, ret);
+        montgomery_multiplication_256_non_interleaved(a, b, mod, inv, ret);
 
         break;
       }
