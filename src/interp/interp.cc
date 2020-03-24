@@ -1756,8 +1756,10 @@ inline Result Thread::OpcodeI64BinOp(Opcode opcode_binop, uint64_t* i64_binop_re
 
     case Opcode::I64ShrS: {
       const int mask = 8*8 - 1;
+      int64_t lhs_s = static_cast<int64_t>(lhs);
+      int64_t rhs_s = static_cast<int64_t>(rhs);
       //return ToRep(FromRep<T>(lhs_rep) << (FromRep<T>(rhs_rep) & mask));
-      *i64_binop_result = lhs >> (rhs & mask);
+      *i64_binop_result = lhs_s >> (rhs_s & mask);
       break;
     }
 
@@ -1878,7 +1880,9 @@ inline Result Thread::OpcodeI32BinOp(Opcode opcode_binop, uint32_t* i32_binop_re
 
     case Opcode::I32ShrS: {
       const int mask = 4*8 - 1;
-      *i32_binop_result = lhs >> (rhs & mask);
+      int32_t lhs_s = static_cast<int32_t>(lhs);
+      int32_t rhs_s = static_cast<int32_t>(rhs);
+      *i32_binop_result = lhs_s >> (rhs_s & mask);
       break;
     }
 
