@@ -10,23 +10,33 @@ typedef unsigned __int128 uint128_t;
 
 const bool tracing = false;
 
+wabt::interp::Memory* GlobalMem = nullptr;
+
 intx::uint256 BignumOne = intx::from_string<intx::uint256>("1");
+
+intx::uint256 two_pow_256 = intx::from_string<intx::uint256>("115792089237316195423570985008687907853269984665640564039457584007913129639935");
+
+
+intx::uint256 FqModulus = intx::from_string<intx::uint256>("21888242871839275222246405745257275088696311157297823662689037894645226208583");
+intx::uint256 FqInv = intx::from_string<intx::uint256>("211173256549385567650468519415768310665");
+intx::uint256 FqRsquared = intx::from_string<intx::uint256>("3096616502983703923843567936837374451735540968419076528771170197431451843209");
+
+
 
 /*** Fq constants here are for secp256k1 ***/
 // modulus = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f
 // inv = 0xbcb223fedc24a059d838091dd2253531
 // r_squared = 0x1000007a2000e90a1
-intx::uint256 FqModulus = intx::from_string<intx::uint256>("115792089237316195423570985008687907853269984665640564039457584007908834671663");
-intx::uint256 FqInv = intx::from_string<intx::uint256>("250819822124803770581580479000962479409");
-intx::uint256 FqRsquared = intx::from_string<intx::uint256>("18446752466076602529");
+//intx::uint256 FqModulus = intx::from_string<intx::uint256>("115792089237316195423570985008687907853269984665640564039457584007908834671663");
+//intx::uint256 FqInv = intx::from_string<intx::uint256>("250819822124803770581580479000962479409");
+//intx::uint256 FqRsquared = intx::from_string<intx::uint256>("18446752466076602529");
 
 
 /** Fr constants are for bn128. leaving them here just so the code compiles **/
-intx::uint256 FrModulus = intx::from_string<intx::uint256>("21888242871839275222246405745257275088548364400416034343698204186575808495617");
-intx::uint256 FrInv = intx::from_string<intx::uint256>("134950519161967129512891662437158223871");
-intx::uint256 FrRsquared = intx::from_string<intx::uint256>("944936681149208446651664254269745548490766851729442924617792859073125903783");
+//intx::uint256 FrModulus = intx::from_string<intx::uint256>("21888242871839275222246405745257275088548364400416034343698204186575808495617");
+//intx::uint256 FrInv = intx::from_string<intx::uint256>("134950519161967129512891662437158223871");
+//intx::uint256 FrRsquared = intx::from_string<intx::uint256>("944936681149208446651664254269745548490766851729442924617792859073125903783");
 
-intx::uint256 two_pow_256 = intx::from_string<intx::uint256>("115792089237316195423570985008687907853269984665640564039457584007913129639935");
 
 void trace_words(uint8_t *mem, size_t len) {
     std::cout << std::hex << std::setw(2) << std::setfill('0');
@@ -197,16 +207,22 @@ void BNAPI::SetMemory(wabt::interp::Memory *memory) {
 */
 
 void BNAPI::AddHostFunctions(wabt::interp::Environment* env, wabt::interp::HostModule *host_module) {
-  
- 
+
+
+  //wabt::interp::Memory* mem = env->GetMemory(0);
+  //this->memory = mem;
+  GlobalMem = env->GetMemory(0);
+  //wabt::interp::Memory* this->memory = env->GetMemory(0);
+
+
+
 	host_module->AppendFuncExport("mulmodmont256", {{Type::I32, Type::I32, Type::I32, Type::I32, Type::I32}, {}}, 
         [env]( const interp::HostFunc* host_func, 
              const interp::FuncSignature *signature,
              const interp::TypedValues &args,
              interp::TypedValues &results) {
 
-            //printf("bn_api mulmodmont256.\n");
-
+            printf("bn_api mulmodmont256.\n");
 
             wabt::interp::Memory* mem = env->GetMemory(0);
 
@@ -263,7 +279,6 @@ void BNAPI::AddHostFunctions(wabt::interp::Environment* env, wabt::interp::HostM
 
             //this->addmod256(arg1_offset, arg2_offset, mod_offset, ret_offset);
 
-
             //printf("bn_api addmod256 returning.\n");
 
             //return interp::ResultType::Ok;
@@ -283,6 +298,17 @@ void BNAPI::AddHostFunctions(wabt::interp::Environment* env, wabt::interp::HostM
             uint32_t mod_offset = static_cast<uint32_t>(args[2].value.i32);
             uint32_t ret_offset = static_cast<uint32_t>(args[3].value.i32);
 
+
+            /* ** using this->memory
+            intx::uint256* a = reinterpret_cast<intx::uint256*>(&(this->memory->data[arg1_offset]));
+            intx::uint256* b = reinterpret_cast<intx::uint256*>(&(this->memory->data[arg2_offset]));
+            intx::uint256* modulus = reinterpret_cast<intx::uint256*>(&(this->memory->data[mod_offset]));
+            intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(this->memory->data[ret_offset]));
+            
+            this->submod256(arg1_offset, arg2_offset, mod_offset, ret_offset);
+            */
+            
+
             wabt::interp::Memory* mem = env->GetMemory(0);
 
             intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[arg1_offset]));
@@ -290,12 +316,12 @@ void BNAPI::AddHostFunctions(wabt::interp::Environment* env, wabt::interp::HostM
             intx::uint256* modulus = reinterpret_cast<intx::uint256*>(&(mem->data[mod_offset]));
             intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
 
-
             if (*a < *b) {
               *ret_mem = (*a + *modulus) - *b;
             } else {
               *ret_mem = *a - *b;
             }
+
 
             /*
             if (tracing) {
@@ -303,81 +329,328 @@ void BNAPI::AddHostFunctions(wabt::interp::Environment* env, wabt::interp::HostM
             }
             */
 
-            //this->submod256(arg1_offset, arg2_offset, mod_offset, ret_offset);
-
             //printf("bn_api submod256 returning.\n");
 
             //return interp::ResultType::Ok;
             return interp::Result::Ok;
         });
 
-  /*
-	host_module->AppendFuncExport("bignum_int_mul", {{Type::I32, Type::I32, Type::I32}, {}},
-        [&]( const interp::HostFunc* host_func, 
-             const interp::FuncSignature *signature,
-             const interp::TypedValues &args,
-             interp::TypedValues &results) {
 
-            uint32_t arg1_offset = static_cast<uint32_t>(args[0].value.i32);
-            uint32_t arg2_offset = static_cast<uint32_t>(args[1].value.i32);
-            uint32_t ret_offset = static_cast<uint32_t>(args[2].value.i32);
 
-            this->mul256(arg1_offset, arg2_offset, ret_offset);
 
-            return interp::ResultType::Ok;
-        });
+    host_module->AppendFuncExport("bignum_f1m_mul", {{Type::I32, Type::I32, Type::I32}, {}}, 
+          [env]( const interp::HostFunc* host_func, 
+               const interp::FuncSignature *signature,
+               const interp::TypedValues &args,
+               interp::TypedValues &results) {
 
-	host_module->AppendFuncExport("bignum_int_add", {{Type::I32, Type::I32, Type::I32}, {Type::I32}},
-        [&]( const interp::HostFunc* host_func, 
-             const interp::FuncSignature *signature,
-             const interp::TypedValues &args,
-             interp::TypedValues &results) {
+              uint32_t arg1_offset = static_cast<uint32_t>(args[0].value.i32);
+              uint32_t arg2_offset = static_cast<uint32_t>(args[1].value.i32);
+              uint32_t ret_offset = static_cast<uint32_t>(args[2].value.i32);
 
-            uint32_t arg1_offset = static_cast<uint32_t>(args[0].value.i32);
-            uint32_t arg2_offset = static_cast<uint32_t>(args[1].value.i32);
-            uint32_t ret_offset = static_cast<uint32_t>(args[2].value.i32);
+              /*
+              wabt::interp::Memory* mem = env->GetMemory(0);
+              intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[arg1_offset]));
+              intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[arg2_offset]));
+              //intx::uint256* modulus = reinterpret_cast<intx::uint256*>(&(mem->data[mod_offset]));
+              intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
+              */
 
-            uint32_t result = this->add256(arg1_offset, arg2_offset, ret_offset);
+              /*
+              uint64_t* a = reinterpret_cast<uint64_t*>(&(this->memory->data[a_offset]));
+              uint64_t* b = reinterpret_cast<uint64_t*>(&(this->memory->data[b_offset]));
+              uint64_t* ret = reinterpret_cast<uint64_t*>(&(this->memory->data[ret_offset]));
+              */
 
-            results[0].set_i32(result);
+              wabt::interp::Memory* mem = env->GetMemory(0);
+              uint64_t* a = reinterpret_cast<uint64_t*>(&(mem->data[arg1_offset]));
+              uint64_t* b = reinterpret_cast<uint64_t*>(&(mem->data[arg2_offset]));
+              uint64_t* ret = reinterpret_cast<uint64_t*>(&(mem->data[ret_offset]));
 
-            return interp::ResultType::Ok;
-        });
 
-	host_module->AppendFuncExport("bignum_int_sub", {{Type::I32, Type::I32, Type::I32}, {Type::I32}},
-        [&]( const interp::HostFunc* host_func, 
-             const interp::FuncSignature *signature,
-             const interp::TypedValues &args,
-             interp::TypedValues &results) {
+              //mul_mod(a, b, &FqModulus, &FqInv, ret);
+              //montgomery_multiplication_256(a, b, &FqModulus, &FqInv, ret);
 
-            uint32_t arg1_offset = static_cast<uint32_t>(args[0].value.i32);
-            uint32_t arg2_offset = static_cast<uint32_t>(args[1].value.i32);
-            uint32_t ret_offset = static_cast<uint32_t>(args[2].value.i32);
- 
-            uint32_t result = this->sub256(arg1_offset, arg2_offset, ret_offset);
 
-            results[0].set_i32(result);
+              uint64_t *mod = reinterpret_cast<uint64_t *>(&(FqModulus));
+              uint64_t *inv = reinterpret_cast<uint64_t *>(&(FqInv));
 
-            return interp::ResultType::Ok;
-        });
+              montgomery_multiplication_256(a, b, mod, inv, ret);
 
-	host_module->AppendFuncExport("bignum_int_div", {{Type::I32, Type::I32, Type::I32, Type::I32}, {}},
-        [&]( const interp::HostFunc* host_func, 
-             const interp::FuncSignature *signature,
-             const interp::TypedValues &args,
-             interp::TypedValues &results) {
 
-            uint32_t arg1_offset = static_cast<uint32_t>(args[0].value.i32);
-            uint32_t arg2_offset = static_cast<uint32_t>(args[1].value.i32);
-            uint32_t carry_offset = static_cast<uint32_t>(args[2].value.i32);
-            uint32_t result_offset = static_cast<uint32_t>(args[3].value.i32);
+              //this->f1m_mul(arg1_offset, arg2_offset, ret_offset);
+              return interp::Result::Ok;
+          });
 
-            this->div256(arg1_offset, arg2_offset, carry_offset, result_offset);
 
-            return interp::ResultType::Ok;
-        });
-   */
+          host_module->AppendFuncExport("bignum_f1m_mul", {{Type::I32, Type::I32, Type::I32}, {}}, 
+                [env]( const interp::HostFunc* host_func, 
+                     const interp::FuncSignature *signature,
+                     const interp::TypedValues &args,
+                     interp::TypedValues &results) {
+
+                    uint32_t arg1_offset = static_cast<uint32_t>(args[0].value.i32);
+                    uint32_t arg2_offset = static_cast<uint32_t>(args[1].value.i32);
+                    uint32_t ret_offset = static_cast<uint32_t>(args[2].value.i32);
+
+                    wabt::interp::Memory* mem = env->GetMemory(0);
+                    uint64_t* a = reinterpret_cast<uint64_t*>(&(mem->data[arg1_offset]));
+                    uint64_t* b = reinterpret_cast<uint64_t*>(&(mem->data[arg2_offset]));
+                    uint64_t* ret = reinterpret_cast<uint64_t*>(&(mem->data[ret_offset]));
+
+                    uint64_t *mod = reinterpret_cast<uint64_t *>(&(FqModulus));
+                    uint64_t *inv = reinterpret_cast<uint64_t *>(&(FqInv));
+
+                    montgomery_multiplication_256(a, b, mod, inv, ret);
+
+                    return interp::Result::Ok;
+                });
+
+
+    host_module->AppendFuncExport("bignum_f1m_square", {{Type::I32, Type::I32}, {}},
+          [env]( const interp::HostFunc* host_func, 
+               const interp::FuncSignature *signature,
+               const interp::TypedValues &args,
+               interp::TypedValues &results) {
+
+               uint32_t arg1_offset = static_cast<uint32_t>(args[0].value.i32);
+               uint32_t ret_offset = static_cast<uint32_t>(args[1].value.i32);
+
+               wabt::interp::Memory* mem = env->GetMemory(0);
+               uint64_t* a = reinterpret_cast<uint64_t*>(&(mem->data[arg1_offset]));
+               uint64_t* ret = reinterpret_cast<uint64_t*>(&(mem->data[ret_offset]));
+
+               uint64_t *mod = reinterpret_cast<uint64_t *>(&(FqModulus));
+               uint64_t *inv = reinterpret_cast<uint64_t *>(&(FqInv));
+
+               montgomery_multiplication_256(a, a, mod, inv, ret);
+
+               return interp::Result::Ok;
+          });
+
+
+    host_module->AppendFuncExport("bignum_f1m_add", {{Type::I32, Type::I32, Type::I32}, {}},
+          [env]( const interp::HostFunc* host_func, 
+               const interp::FuncSignature *signature,
+               const interp::TypedValues &args,
+               interp::TypedValues &results) {
+
+               uint32_t arg1_offset = static_cast<uint32_t>(args[0].value.i32);
+               uint32_t arg2_offset = static_cast<uint32_t>(args[1].value.i32);
+               uint32_t ret_offset = static_cast<uint32_t>(args[2].value.i32);
+
+               wabt::interp::Memory* mem = env->GetMemory(0);
+               intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[arg1_offset]));
+               intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[arg2_offset]));
+               intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
+
+               intx::uint512 ret_full = intx::uint512{0,*a} + intx::uint512{0,*b};
+
+               if (ret_full >= FqModulus) {
+                 ret_full -= intx::uint512{0, FqModulus};
+               }
+
+               *ret_mem = ret_full.lo;
+
+
+               return interp::Result::Ok;
+
+          });
+
+    host_module->AppendFuncExport("bignum_f1m_sub", {{Type::I32, Type::I32, Type::I32}, {}},
+          [env]( const interp::HostFunc* host_func, 
+               const interp::FuncSignature *signature,
+               const interp::TypedValues &args,
+               interp::TypedValues &results) {
+
+               uint32_t arg1_offset = static_cast<uint32_t>(args[0].value.i32);
+               uint32_t arg2_offset = static_cast<uint32_t>(args[1].value.i32);
+               uint32_t ret_offset = static_cast<uint32_t>(args[2].value.i32);
+
+               wabt::interp::Memory* mem = env->GetMemory(0);
+               intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[arg1_offset]));
+               intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[arg2_offset]));
+               intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
+
+               if (*a < *b) {
+                  *ret_mem = (*a + FqModulus) - *b;
+                } else {
+                  *ret_mem = *a - *b;
+                }
+
+                return interp::Result::Ok;
+
+          });
+
+
+    host_module->AppendFuncExport("bignum_f1m_fromMontgomery", {{Type::I32, Type::I32}, {}},
+          [env]( const interp::HostFunc* host_func, 
+               const interp::FuncSignature *signature,
+               const interp::TypedValues &args,
+               interp::TypedValues &results) {
+
+                 uint32_t arg1_offset = static_cast<uint32_t>(args[0].value.i32);
+                 uint32_t ret_offset = static_cast<uint32_t>(args[1].value.i32);
+
+                 wabt::interp::Memory* mem = env->GetMemory(0);
+                 uint64_t* a = reinterpret_cast<uint64_t*>(&(mem->data[arg1_offset]));
+                 uint64_t* ret = reinterpret_cast<uint64_t*>(&(mem->data[ret_offset]));
+
+                 uint64_t *mod = reinterpret_cast<uint64_t *>(&(FqModulus));
+                 uint64_t *inv = reinterpret_cast<uint64_t *>(&(FqInv));
+
+
+                 //fromMont(a, &FqModulus, &FqInv, ret);
+                 uint64_t* b = reinterpret_cast<uint64_t*>(&BignumOne);
+                 //uint64_t *mod = reinterpret_cast<uint64_t *>(modulus);
+                 //uint64_t *inv = reinterpret_cast<uint64_t *>(inverse);
+
+                 montgomery_multiplication_256(a, b, mod, inv, ret);
+
+                 return interp::Result::Ok;
+          });
+
+    host_module->AppendFuncExport("bignum_f1m_toMontgomery", {{Type::I32, Type::I32}, {}},
+          [env]( const interp::HostFunc* host_func, 
+               const interp::FuncSignature *signature,
+               const interp::TypedValues &args,
+               interp::TypedValues &results) {
+
+              uint32_t arg1_offset = static_cast<uint32_t>(args[0].value.i32);
+              uint32_t ret_offset = static_cast<uint32_t>(args[1].value.i32);
+
+              wabt::interp::Memory* mem = env->GetMemory(0);
+              uint64_t* a = reinterpret_cast<uint64_t*>(&(mem->data[arg1_offset]));
+              uint64_t* ret = reinterpret_cast<uint64_t*>(&(mem->data[ret_offset]));
+
+              uint64_t *mod = reinterpret_cast<uint64_t *>(&(FqModulus));
+              uint64_t *inv = reinterpret_cast<uint64_t *>(&(FqInv));
+              uint64_t *r_squared = reinterpret_cast<uint64_t *>(&(FqRsquared));
+
+              //fromMont(a, &FqModulus, &FqInv, ret);
+              //uint64_t* b = reinterpret_cast<uint64_t*>(&BignumOne);
+
+              //uint64_t *mod = reinterpret_cast<uint64_t *>(modulus);
+              //uint64_t *inv = reinterpret_cast<uint64_t *>(inverse);
+
+              montgomery_multiplication_256(a, r_squared, mod, inv, ret);
+
+              return interp::Result::Ok;
+          });
+
+
+
+  	host_module->AppendFuncExport("bignum_int_mul", {{Type::I32, Type::I32, Type::I32}, {}},
+          [env]( const interp::HostFunc* host_func, 
+               const interp::FuncSignature *signature,
+               const interp::TypedValues &args,
+               interp::TypedValues &results) {
+
+                 uint32_t arg1_offset = static_cast<uint32_t>(args[0].value.i32);
+                 uint32_t arg2_offset = static_cast<uint32_t>(args[1].value.i32);
+                 uint32_t ret_offset = static_cast<uint32_t>(args[2].value.i32);
+
+                 wabt::interp::Memory* mem = env->GetMemory(0);
+                 intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[arg1_offset]));
+                 intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[arg2_offset]));
+                 intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
+
+                 *ret_mem = (*a * *b ) % two_pow_256;
+
+                  return interp::Result::Ok;
+          });
+
+  	host_module->AppendFuncExport("bignum_int_add", {{Type::I32, Type::I32, Type::I32}, {Type::I32}},
+          [env]( const interp::HostFunc* host_func, 
+               const interp::FuncSignature *signature,
+               const interp::TypedValues &args,
+               interp::TypedValues &results) {
+
+              uint32_t arg1_offset = static_cast<uint32_t>(args[0].value.i32);
+              uint32_t arg2_offset = static_cast<uint32_t>(args[1].value.i32);
+              uint32_t ret_offset = static_cast<uint32_t>(args[2].value.i32);
+
+              wabt::interp::Memory* mem = env->GetMemory(0);
+              intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[arg1_offset]));
+              intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[arg2_offset]));
+              intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
+
+              const auto add_res = add_with_carry(*a, *b);
+
+              *ret_mem = std::get<0>(add_res);
+
+              uint32_t carry = 0;
+              if (std::get<1>(add_res) > 0) {
+                carry = 1;
+              }
+
+              //return carry;
+              results[0].set_i32(carry);
+
+              //uint32_t result = this->add256(arg1_offset, arg2_offset, ret_offset);
+
+              return interp::Result::Ok;
+          });
+
+  	host_module->AppendFuncExport("bignum_int_sub", {{Type::I32, Type::I32, Type::I32}, {Type::I32}},
+          [env]( const interp::HostFunc* host_func, 
+               const interp::FuncSignature *signature,
+               const interp::TypedValues &args,
+               interp::TypedValues &results) {
+
+                 uint32_t arg1_offset = static_cast<uint32_t>(args[0].value.i32);
+                 uint32_t arg2_offset = static_cast<uint32_t>(args[1].value.i32);
+                 uint32_t ret_offset = static_cast<uint32_t>(args[2].value.i32);
+
+                 wabt::interp::Memory* mem = env->GetMemory(0);
+                 intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[arg1_offset]));
+                 intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[arg2_offset]));
+                 intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(mem->data[ret_offset]));
+
+                 uint32_t carry = 0;
+
+               	if (*a < *b) {
+               	  carry = 1;
+               	}
+
+               	*ret_mem = *a - *b;
+
+                 //return carry;
+                 results[0].set_i32(carry);
+
+                 return interp::Result::Ok;
+          });
+
+  	host_module->AppendFuncExport("bignum_int_div", {{Type::I32, Type::I32, Type::I32, Type::I32}, {}},
+          [env]( const interp::HostFunc* host_func, 
+               const interp::FuncSignature *signature,
+               const interp::TypedValues &args,
+               interp::TypedValues &results) {
+
+              uint32_t arg1_offset = static_cast<uint32_t>(args[0].value.i32);
+              uint32_t arg2_offset = static_cast<uint32_t>(args[1].value.i32);
+              uint32_t carry_offset = static_cast<uint32_t>(args[2].value.i32);
+              uint32_t result_offset = static_cast<uint32_t>(args[3].value.i32);
+
+              wabt::interp::Memory* mem = env->GetMemory(0);
+              intx::uint256* a = reinterpret_cast<intx::uint256*>(&(mem->data[arg1_offset]));
+              intx::uint256* b = reinterpret_cast<intx::uint256*>(&(mem->data[arg2_offset]));
+              intx::uint256* ret_remainder_mem = reinterpret_cast<intx::uint256*>(&(mem->data[result_offset]));
+              intx::uint256* ret_quotient_mem = reinterpret_cast<intx::uint256*>(&(mem->data[carry_offset]));
+
+              const auto div_res = udivrem(*a, *b);
+              *ret_quotient_mem = div_res.quot;
+              *ret_remainder_mem = div_res.rem;
+
+              //this->div256(arg1_offset, arg2_offset, carry_offset, result_offset);
+
+              return interp::Result::Ok;
+          });
+
+
 }
+
+
 
 /*
 void BNAPI::mul256(uint32_t &a_offset, uint32_t &b_offset, uint32_t &ret_offset) {
@@ -448,7 +721,9 @@ void add_mod(intx::uint256 *a, intx::uint256 *b, intx::uint256 *modulus, intx::u
 
 	*ret_mem = ret_full.lo;
 }
+*/
 
+/*
 void sub_mod(intx::uint256 *a, intx::uint256 *b, intx::uint256 *modulus, intx::uint256 *ret_mem) {
     if (*a < *b) {
       *ret_mem = (*a + *modulus) - *b;
@@ -457,6 +732,7 @@ void sub_mod(intx::uint256 *a, intx::uint256 *b, intx::uint256 *modulus, intx::u
     }
 }
 */
+
 
 /*
 void mul_mod(uint64_t *a, uint64_t *b, intx::uint256 *modulus, intx::uint256 *inverse, uint64_t *ret) {
@@ -486,28 +762,53 @@ void BNAPI::addmod256(uint32_t &a_offset, uint32_t &b_offset, uint32_t &mod_offs
 }
 */
 
-/*
+
 void BNAPI::submod256(uint32_t &a_offset, uint32_t &b_offset, uint32_t &mod_offset, uint32_t &ret_offset) {
     printf("BNAPI::submod256\n.");
 
+    /*
+    intx::uint256* a = reinterpret_cast<intx::uint256*>(this->memory->data[a_offset]);
+    intx::uint256* b = reinterpret_cast<intx::uint256*>(this->memory->data[b_offset]);
+    intx::uint256* modulus = reinterpret_cast<intx::uint256*>(this->memory->data[mod_offset]);
+    intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(this->memory->data[ret_offset]);
+    */
+    /*
     intx::uint256* a = reinterpret_cast<intx::uint256*>(&(this->memory->data[a_offset]));
     intx::uint256* b = reinterpret_cast<intx::uint256*>(&(this->memory->data[b_offset]));
     intx::uint256* modulus = reinterpret_cast<intx::uint256*>(&(this->memory->data[mod_offset]));
     intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(this->memory->data[ret_offset]));
+    */
+
+
+    intx::uint256* a = reinterpret_cast<intx::uint256*>(&(GlobalMem->data[a_offset]));
+    intx::uint256* b = reinterpret_cast<intx::uint256*>(&(GlobalMem->data[b_offset]));
+    intx::uint256* modulus = reinterpret_cast<intx::uint256*>(&(GlobalMem->data[mod_offset]));
+    intx::uint256* ret_mem = reinterpret_cast<intx::uint256*>(&(GlobalMem->data[ret_offset]));
+
+
     printf("BNAPI::submod256 casted args.\n.");
 
-    if (tracing) {
-        std::cout << "submod256" << intx::to_string(*a) << " - " << intx::to_string(*b);
+    //if (tracing) {
+    //    std::cout << "submod256" << intx::to_string(*a) << " - " << intx::to_string(*b);
+    //}
+
+    if (*a < *b) {
+      *ret_mem = (*a + *modulus) - *b;
+    } else {
+      *ret_mem = *a - *b;
     }
 
-    sub_mod(a, b, modulus, ret_mem);
+    printf("BNAPI::submod256 done calcs.\n");
 
-    if (tracing) {
-        std::cout << " = " << intx::to_string(*ret_mem) << std::endl;
-    }
+    //sub_mod(a, b, modulus, ret_mem);
+
+    //if (tracing) {
+    //    std::cout << " = " << intx::to_string(*ret_mem) << std::endl;
+    //}
 }
-*/
 
+
+/*
 void BNAPI::mulmodmont256(uint32_t &a_offset, uint32_t &b_offset, uint32_t &mod_offset, uint32_t &inv_offset, uint32_t &ret_offset) {
     uint64_t* a = reinterpret_cast<uint64_t*>(&(this->memory->data[a_offset]));
     uint64_t* b = reinterpret_cast<uint64_t*>(&(this->memory->data[b_offset]));
@@ -529,6 +830,7 @@ void BNAPI::mulmodmont256(uint32_t &a_offset, uint32_t &b_offset, uint32_t &mod_
         //std::cout << " = " << intx::to_string(*ret_num) << std::endl;
     }
 }
+*/
 
 
 
