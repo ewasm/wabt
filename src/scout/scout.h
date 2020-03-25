@@ -12,6 +12,8 @@
 #include <sstream>
 #include <cctype>
 
+#include "src/bn_api/bn_api.h"
+
 using bytes = std::basic_string<uint8_t>;
 
 
@@ -54,6 +56,8 @@ using namespace wabt::interp;
 
 void AppendScoutFuncs(wabt::interp::Environment* env, wabt::interp::HostModule* host_module_env) {
 
+
+  BNAPI bnapi;
 
   // TODO: read block data from a scout yaml file
   std::ifstream blockDataFile{"./test_block_data.hex"};
@@ -215,6 +219,30 @@ void AppendScoutFuncs(wabt::interp::Environment* env, wabt::interp::HostModule* 
       return interp::Result::Ok;
     }
   );
+
+
+
+  //bnapi.SetMemory(env->GetMemory(0));
+  bnapi.AddHostFunctions(env, host_module_env);
+
+
+
+  /*
+
+  // these are here only to make the imports validate
+  host_module_env->AppendFuncExport("bignum_f1m_mul", {{Type::I32, Type::I32, Type::I32}, {}}, EwasmHostFunc);
+  host_module_env->AppendFuncExport("bignum_f1m_square", {{Type::I32, Type::I32}, {}}, EwasmHostFunc);
+  host_module_env->AppendFuncExport("bignum_f1m_add", {{Type::I32, Type::I32, Type::I32}, {}}, EwasmHostFunc);
+  host_module_env->AppendFuncExport("bignum_f1m_sub", {{Type::I32, Type::I32, Type::I32}, {}}, EwasmHostFunc);
+  host_module_env->AppendFuncExport("bignum_f1m_toMontgomery", {{Type::I32, Type::I32}, {}}, EwasmHostFunc);
+  host_module_env->AppendFuncExport("bignum_f1m_fromMontgomery", {{Type::I32, Type::I32}, {}}, EwasmHostFunc);
+
+  host_module_env->AppendFuncExport("bignum_int_mul", {{Type::I32, Type::I32, Type::I32}, {}}, EwasmHostFunc);
+  host_module_env->AppendFuncExport("bignum_int_add", {{Type::I32, Type::I32, Type::I32}, {Type::I32}}, EwasmHostFunc);
+  host_module_env->AppendFuncExport("bignum_int_sub", {{Type::I32, Type::I32, Type::I32}, {Type::I32}}, EwasmHostFunc);
+  host_module_env->AppendFuncExport("bignum_int_div", {{Type::I32, Type::I32, Type::I32, Type::I32}, {}}, EwasmHostFunc);
+
+  */
 
 
 }

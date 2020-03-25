@@ -203,6 +203,7 @@ static void InitEnvironment(Environment* env) {
 
   HostModule* host_module_env = env->AppendHostModule("env");
 
+  /*
   // these are here only to make the imports validate
   host_module_env->AppendFuncExport("bignum_f1m_mul", {{Type::I32, Type::I32, Type::I32}, {}}, EwasmHostFunc);
   host_module_env->AppendFuncExport("bignum_f1m_square", {{Type::I32, Type::I32}, {}}, EwasmHostFunc);
@@ -215,13 +216,7 @@ static void InitEnvironment(Environment* env) {
   host_module_env->AppendFuncExport("bignum_int_add", {{Type::I32, Type::I32, Type::I32}, {Type::I32}}, EwasmHostFunc);
   host_module_env->AppendFuncExport("bignum_int_sub", {{Type::I32, Type::I32, Type::I32}, {Type::I32}}, EwasmHostFunc);
   host_module_env->AppendFuncExport("bignum_int_div", {{Type::I32, Type::I32, Type::I32, Type::I32}, {}}, EwasmHostFunc);
-
-  host_module_env->AppendFuncExport("bignum_frm_mul", {{Type::I32, Type::I32, Type::I32}, {}}, EwasmHostFunc);
-  host_module_env->AppendFuncExport("bignum_frm_square", {{Type::I32, Type::I32}, {}}, EwasmHostFunc);
-  host_module_env->AppendFuncExport("bignum_frm_add", {{Type::I32, Type::I32, Type::I32}, {}}, EwasmHostFunc);
-  host_module_env->AppendFuncExport("bignum_frm_sub", {{Type::I32, Type::I32, Type::I32}, {}}, EwasmHostFunc);
-  host_module_env->AppendFuncExport("bignum_frm_toMontgomery", {{Type::I32, Type::I32}, {}}, EwasmHostFunc);
-  host_module_env->AppendFuncExport("bignum_frm_fromMontgomery", {{Type::I32, Type::I32}, {}}, EwasmHostFunc);
+  */
 
   // the scout functions aren't implemented using the "parse call to host func as an opcode"
   // optimization that we use for the bignum host functions. so they're handled in scout.h
@@ -266,6 +261,12 @@ static wabt::Result ReadAndRunModule(const char* module_filename) {
       const auto execDuration = execFinishTime - execStartTime;
       std::cout << "parse time: " << std::dec << to_us(parseDuration) << "us\n";
       std::cout << "exec time: " << std::dec << to_us(execDuration) << "us\n";
+
+      if (exec_result.result != interp::Result::Ok) {
+        std::cout << " error running main: ";
+        WriteResult(s_stdout_stream.get(), "error running main function",
+                    exec_result.result);
+      }
 
       /*
       ExecResult exec_result = executor.RunStartFunction(module);

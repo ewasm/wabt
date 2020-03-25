@@ -267,6 +267,8 @@ add_library(wabt STATIC
   src/interp/interp.cc
   src/interp/interp-disassemble.cc
   src/interp/interp-trace.cc
+
+  src/bn_api/bn_api.cpp
 )
 
 add_library(intx STATIC
@@ -379,13 +381,13 @@ if (NOT EMSCRIPTEN)
     #  INSTALL
     #)
 
-    # benchmark-interp
-    wabt_executable(
-      NAME benchmark-interp
-      SOURCES src/tools/benchmark-interp.cc
-      WITH_LIBM
-      INSTALL
-    )
+    ## benchmark-interp
+    #wabt_executable(
+    #  NAME benchmark-interp
+    #  SOURCES src/tools/benchmark-interp.cc
+    #  WITH_LIBM
+    #  INSTALL
+    #)
 
     # wat-desugar
     #wabt_executable(

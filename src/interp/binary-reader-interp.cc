@@ -1323,6 +1323,11 @@ wabt::Result BinaryReaderInterp::OnCallExpr(Index func_index) {
     //printf("host_func->field_name: %s\n", host_func->field_name.c_str());
     auto func_name = host_func->field_name;
 
+    // all other host functions
+    CHECK_RESULT(EmitOpcode(Opcode::InterpCallHost));
+    CHECK_RESULT(EmitI32(TranslateFuncIndexToEnv(func_index)));
+
+    /*
     if (func_name == "bignum_f1m_add") {
       CHECK_RESULT(EmitOpcode(Opcode::EwasmF1mAdd));
     } else if (func_name == "bignum_f1m_sub") {
@@ -1360,6 +1365,7 @@ wabt::Result BinaryReaderInterp::OnCallExpr(Index func_index) {
       CHECK_RESULT(EmitOpcode(Opcode::InterpCallHost));
       CHECK_RESULT(EmitI32(TranslateFuncIndexToEnv(func_index)));
     }
+    */
   } else {
     CHECK_RESULT(EmitOpcode(Opcode::Call));
     CHECK_RESULT(EmitFuncOffset(cast<DefinedFunc>(func), func_index));

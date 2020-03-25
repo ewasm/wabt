@@ -1947,7 +1947,6 @@ Result BinaryReader::ReadFunctionSection(Offset section_size) {
 }
 
 Result BinaryReader::ReadTableSection(Offset section_size) {
-  const auto parseStartTime = chrono_clock::now();
   CALLBACK(BeginTableSection, section_size);
   CHECK_RESULT(ReadCount(&num_tables_, "table count"));
   if (!options_.features.reference_types_enabled()) {
@@ -1963,9 +1962,6 @@ Result BinaryReader::ReadTableSection(Offset section_size) {
     CALLBACK(OnTable, table_index, elem_type, &elem_limits);
   }
   CALLBACK0(EndTableSection);
-  const auto now = chrono_clock::now();
-  const auto parseDuration = now - parseStartTime;
-  std::cout << "parse time: " << std::dec << to_us(parseDuration) << "us\n";
   return Result::Ok;
 }
 
