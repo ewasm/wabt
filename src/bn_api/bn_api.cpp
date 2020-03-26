@@ -12,6 +12,9 @@ const bool tracing = false;
 
 intx::uint256 BignumOne = intx::from_string<intx::uint256>("1");
 
+// Mask128 = 0xffffffffffffffffffffffffffffffff
+intx::uint128 Mask128 = intx::from_string<intx::uint128>("340282366920938463463374607431768211455");
+
 /*** Fq constants here are for secp256k1 ***/
 // modulus = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f
 // inv = 0xbcb223fedc24a059d838091dd2253531
@@ -50,7 +53,43 @@ static void trace_word(uint8_t *mem) {
 }
 
 
-void montgomery_multiplication_256(uint64_t* x, uint64_t* y, uint64_t* m, uint64_t* inv, uint64_t *out){
+// slow montmul (non-interleaved)
+void montgomery_multiplication_256(uint64_t* x, uint64_t* y, uint64_t* m, uint64_t* inv_ptr, uint64_t* out) {
+  using intx::uint512;
+
+  intx::uint256* a = reinterpret_cast<intx::uint256*>(x);
+  intx::uint256* b = reinterpret_cast<intx::uint256*>(y);
+  intx::uint256* mod = reinterpret_cast<intx::uint256*>(m);
+  intx::uint256* inv = reinterpret_cast<intx::uint256*>(inv_ptr);
+  intx::uint256* ret = reinterpret_cast<intx::uint256*>(out);
+
+  //std::cout << "montgomery_multiplication_256 using non-interleaved.  a: " << intx::to_string(*a) << "  b: " << intx::to_string(*b) << std::endl;
+
+  auto res1 = uint512{*a} * uint512{*b};
+  //auto k0 = ((inv * res1).lo).lo;
+  auto k0 = (uint512{*inv} * res1).lo & Mask128;
+  auto res2 = ((uint512{k0} * uint512{*mod}) + res1) >> 128;
+  auto k1 = (res2 * uint512{*inv}).lo & Mask128;
+  auto result = ((uint512{k1} * uint512{*mod}) + res2) >> 128;
+  if (result >= *mod) {
+    result = result - *mod;
+  }
+
+  intx::uint256 result_256 = result.lo;
+  //std::cout << "montgomery_multiplication_256 using non-interleaved.  result: " << intx::to_string(result_256) << std::endl;
+  intx::uint128 result_low_128 = result_256.lo;
+  intx::uint128 result_high_128 = result_256.hi;
+
+  out[0] = result_low_128.lo;
+  out[1] = result_low_128.hi;
+  out[2] = result_high_128.lo;
+  out[3] = result_high_128.hi;
+}
+
+
+
+// fast montmul
+void montgomery_multiplication_256_interleaved(uint64_t* x, uint64_t* y, uint64_t* m, uint64_t* inv, uint64_t *out){
 
   uint64_t A[] = {0,0,0,0,0,0,0,0,0}; // we need 9 64-bit limbs, the 9th limb in case x*y (before subtracting the modulus) is greater than 256 bits
   for (int i=0; i<4; i++){
