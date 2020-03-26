@@ -141,7 +141,8 @@ intx::uint128 Mask128 = intx::from_string<intx::uint128>("3402823669209384634633
 typedef unsigned __int128 uint128_t;
 
 
-void montgomery_multiplication_256_non_interleaved(uint64_t* x, uint64_t* y, uint64_t* m, uint64_t* inv_ptr, uint64_t* out) {
+// slow montmul
+void montgomery_multiplication_256(uint64_t* x, uint64_t* y, uint64_t* m, uint64_t* inv_ptr, uint64_t* out) {
   using intx::uint512;
 
   intx::uint256* a = reinterpret_cast<intx::uint256*>(x);
@@ -177,8 +178,8 @@ void montgomery_multiplication_256_non_interleaved(uint64_t* x, uint64_t* y, uin
 
 
 
-
-void montgomery_multiplication_256(uint64_t* x, uint64_t* y, uint64_t* m, uint64_t* inv, uint64_t *out){
+// fast montmul
+void montgomery_multiplication_256_interleaved(uint64_t* x, uint64_t* y, uint64_t* m, uint64_t* inv, uint64_t *out){
 
   uint64_t A[] = {0,0,0,0,0,0,0,0,0}; // we need 9 64-bit limbs, the 9th limb in case x*y (before subtracting the modulus) is greater than 256 bits
   for (int i=0; i<4; i++){
