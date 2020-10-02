@@ -134,7 +134,8 @@ class BinaryReader {
   Result ReadDylinkSection(Offset section_size) WABT_WARN_UNUSED;
   Result ReadLinkingSection(Offset section_size) WABT_WARN_UNUSED;
   Result ReadCustomSection(Index section_index,
-                           Offset section_size) WABT_WARN_UNUSED;
+                           Offset section_size,
+                           string_view section_name) WABT_WARN_UNUSED;
   Result ReadTypeSection(Offset section_size) WABT_WARN_UNUSED;
   Result ReadImportSection(Offset section_size) WABT_WARN_UNUSED;
   Result ReadFunctionSection(Offset section_size) WABT_WARN_UNUSED;
@@ -1988,9 +1989,8 @@ Result BinaryReader::ReadEventSection(Offset section_size) {
 }
 
 Result BinaryReader::ReadCustomSection(Index section_index,
-                                       Offset section_size) {
-  string_view section_name;
-  CHECK_RESULT(ReadStr(&section_name, "section name"));
+                                       Offset section_size,
+                                       string_view section_name) {
   CALLBACK(BeginCustomSection, section_index, section_size, section_name);
   ValueRestoreGuard<bool, &BinaryReader::reading_custom_section_> guard(this);
   reading_custom_section_ = true;
@@ -2477,14 +2477,17 @@ Result BinaryReader::ReadSections() {
     bool stop_on_first_error = options_.stop_on_first_error;
     Result section_result = Result::Error;
     switch (section) {
-      case BinarySection::Custom:
-        section_result = ReadCustomSection(section_index, section_size);
+      case BinarySection::Custom: {
+        string_view section_name;
+        CHECK_RESULT(ReadStr(&section_name, "section name"));
+        section_result =
+            ReadCustomSection(section_index, section_size, section_name);
         if (options_.fail_on_custom_section_error) {
           result |= section_result;
         } else {
           stop_on_first_error = false;
         }
-        break;
+      } break;
       case BinarySection::Type:
         section_result = ReadTypeSection(section_size);
         result |= section_result;
